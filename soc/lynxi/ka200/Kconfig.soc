@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_SERIES_KA200
+	bool
+	select SOC_FAMILY_LYNXI
+
+config SOC_LYNXI_KA200
+	bool
+	select SOC_SERIES_KA200
+
+config SOC_SERIES
+	default "ka200" if SOC_SERIES_KA200
+
+config SOC
+	default "ka200" if SOC_LYNXI_KA200

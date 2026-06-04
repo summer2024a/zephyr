@@ -1,0 +1,17 @@
+# Lynxi SoC family
+
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_FAMILY_LYNXI
+	bool
+
+config SOC_FAMILY
+	default "lynxi" if SOC_FAMILY_LYNXI
+
+rsource "*/Kconfig.soc"
+
+if SOC_FAMILY_LYNXI
+
+rsource "*/Kconfig"
+
+endif

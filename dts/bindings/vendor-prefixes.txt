@@ -416,6 +416,7 @@ lowrisc	lowRISC Community Interest Company
 lsi	LSI Corp. (LSI Logic)
 luatos	LuatOS Team
 lwn	Liebherr-Werk Nenzing GmbH
+lynxi	Lynxi Technologies Co., Ltd.
 lxa	Linux Automation GmbH
 m5stack	M5Stack
 macnica	Macnica Americas

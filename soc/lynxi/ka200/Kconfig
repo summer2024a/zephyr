@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_LYNXI_KA200
+	select ARM64
+	select CPU_CORTEX_A
+	select ARMV8_A
+	select ARMV8_A_FP
+	select CPU_HAS_MMU
+	select ARMV8_A_TIMER
+	select CACHE_L2
+	select GIC
+	select GIC_V3
+	select TIMER_ARMv8_CNTVCT
+	select SYS_CLOCK_EXISTS
+	help
+	  Lynxi KA200 ARM64 SoC (8 cores)

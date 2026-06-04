@@ -114,6 +114,7 @@ config HAS_ARM_SMCCC
 
 config NUM_IRQS
 	int
+	default 220 if SOC_LYNXI_KA200
 
 config MAIN_STACK_SIZE
 	default 4096

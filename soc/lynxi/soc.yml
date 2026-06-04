@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+family:
+- name: lynxi
+  series:
+  - name: ka200
+    socs:
+    - name: ka200
