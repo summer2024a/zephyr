@@ -11,7 +11,7 @@
 | 板名 | Kconfig | 用途 | SPL 直连验证 |
 |------|---------|------|----------------|
 | `he200` | `BOARD_HE200` | 通用 HE200 开发板 DTS/配置 | 未作为默认 SPL 目标 |
-| `he200_ep` | `BOARD_HE200_EP` | Entry Point：与 SPL 入口 `0x800100000` 对齐 | **已验证**（Shell + `app_shell_fs`） |
+| `he200_ep` | `BOARD_HE200_EP` | Entry Point：与 SPL 入口 `0x800100000` 对齐 | **已验证**（Shell + `app_shell_fs` + **8 核 SMP**） |
 
 说明：
 
@@ -257,7 +257,7 @@ Starting shell example
 
 对照：**RT-Thread** `bsp/lynxi/he200`、**lynxi-linux** `arch/arm64/boot/dts/lynxi/lynchip-lite-base.dtsi`、**lynxi-drivers**（`lyn_drv/drivers/base/dma/`、`sysdma/` 等）。
 
-### 10.1 多核 SMP（spin-table）
+### 10.1 多核 SMP（spin-table）— **实板已验证**
 
 | 项 | RT / Linux | Zephyr 现状 |
 |----|------------|-------------|
@@ -266,12 +266,42 @@ Starting shell example
 | MPIDR | `0..3` + `0x100..0x103` | DTS `reg` 与 RT `rt_cpu_mpidr_table` 一致 |
 | IPI | GICv3 SGI；跨 cluster 注意 Aff1 | 上游 `arch/arm64/core/smp.c` + `gic_raise_sgi`；异常时对照 RT `gicv3.c` |
 
-**默认镜像（`build_he200_ep_final`）已含 SMP**，无需再叠加 `he200_ep_smp.conf`。
+**默认镜像（`build_he200_ep_final`）已含 SMP**（`he200_ep_defconfig`：`CONFIG_SMP` + `CONFIG_MP_MAX_NUM_CPUS=8`），无需再叠加 `he200_ep_smp.conf`。
 
-验收：
+#### 编译与烧录
 
-- Shell：`he200_smp` 或 `kernel thread stacks` 见 **idle 00～07**、**IRQ 00～07** ⇒ 8 核已进调度器。
-- 启动串口：`Secondary CPU core N ... is up`（N=1..7）及 `he200_ep: SMP=on`。**须关闭 `CONFIG_LOG_PRINTK`**，否则 printk 进 log 而 Shell 串口为 `LOG_LEVEL_NONE`，这些行不会出现在 UART 上。
+```bash
+west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
+# 烧录 build_he200_ep_final/zephyr/zephyr.bin → 原 u-boot.bin 分区
+```
+
+#### 启动日志（实板 2026-06，正常样例）
+
+```text
+*** Booting Zephyr OS build v4.3.0-... ***
+Secondary CPU core 1 (MPID:0x1) is up
+Secondary CPU core 2 (MPID:0x2) is up
+Secondary CPU core 3 (MPID:0x3) is up
+Secondary CPU core 4 (MPID:0x100) is up
+Secondary CPU core 5 (MPID:0x101) is up
+Secondary CPU core 6 (MPID:0x102) is up
+Secondary CPU core 7 (MPID:0x103) is up
+*** he200_ep: SMP=on online_cpus=8 mp_max=8 (shell: he200_smp) ***
+uart:~$
+```
+
+#### Shell 验收
+
+| 命令 | 期望 |
+|------|------|
+| `he200_smp` | `arch_num_cpus()=8`，MPIDR 与当前核一致 |
+| `kernel thread stacks` | **idle 00～07**、**IRQ 00～07** 各 8 条 |
+| `kernel thread list` | 多核 idle 线程存在 |
+
+说明：
+
+- **`CONFIG_LOG_PRINTK` 必须关闭**（`he200_ep_defconfig` 已 `# CONFIG_LOG_PRINTK is not set`）。若开启，printk 进 log 子系统，而 Shell 串口为 `LOG_LEVEL_NONE`，上述启动行在 UART 上**看不见**（但多核仍可能已起来，可用 `kernel thread stacks` 判断）。
+- `kernel thread stacks` 中 **IRQ 01～07 显示 100% usage** 多为 secondary 核 ISR 栈检测显示问题，**不一定**表示栈溢出；以 8 个 idle/IRQ 条目存在为准。
 
 ### 10.2 外设 DTS（已预置，默认 disabled）
 
@@ -302,11 +332,12 @@ MMU：`soc/lynxi/ka200/mmu_regions.c` 已增加 **SPIN_TABLE** + **SOC_APB**（`
 ### 10.4 待办 checklist
 
 - [ ] `he200` 板启用 Shell 并做 SPL 启动验证（当前 defconfig 关闭 UART/Shell）
-- [x] spin-table `pm_cpu_on` + `he200_ep_smp.conf` 骨架
+- [x] spin-table `pm_cpu_on` + `he200_ep_defconfig` 默认 SMP
 - [x] `he200_peripherals.dtsi` + MMU SOC_APB / SPIN_TABLE
-- [ ] SMP 实板 8 核 + IPI 调度压测（对照 RT README §5 IPI）
+- [x] SMP 实板 8 核启动（spin-table + 启动日志 + `he200_smp` / `kernel thread stacks`）
+- [ ] SMP IPI 调度压测（对照 RT README §5 IPI，跨 cluster 异常时再查）
 - [ ] eMMC / GMAC / GPIO / I2C / SPI / DMA 驱动与 `status = "okay"`
-- [ ] 将本文档链接加入 `zephyrproject/README.md` 的 He200 章节
+- [x] `README.md` He200 章节（编译、SMP 验收）
 - [ ] 若新增 `he200_rc` 板：复用 `he200_common.dtsi` + 独立 `defconfig`/linker 即可
 
 ---
@@ -318,7 +349,9 @@ MMU：`soc/lynxi/ka200/mmu_regions.c` 已增加 **SPIN_TABLE** + **SOC_APB**（`
 | `boards/lynxi/he200_ep/he200_ep_spl.c` | SPL 时钟、EL1/MMU 准备、plat_init |
 | `boards/lynxi/he200_ep/he200_ep_init.c` | EL2 GIC SRE |
 | `boards/lynxi/he200_ep/linker.ld` | header 后放置 reset 段 |
-| `soc/lynxi/ka200/mmu_regions.c` | GIC / UART / CPR MMU |
+| `soc/lynxi/ka200/mmu_regions.c` | GIC / SPIN_TABLE / UART / CPR / SOC_APB MMU |
+| `soc/lynxi/ka200/pm_cpu_ops_spin_table.c` | 无 PSCI 时 `pm_cpu_on()`，RT release 地址表 |
+| `boards/lynxi/he200_ep/he200_ep_smp_shell.c` | Shell 命令 `he200_smp` |
 | `arch/arm64/core/prep_c.c` | `he200_ep_spl_mmu_prepare()` 调用点 |
 
-文档版本：与 SPL 启动调试会话同步（Zephyr `v4.3.0` 构建验证通过）。
+文档版本：SPL + Shell + **8 核 SMP 实板验证**（Zephyr `v4.3.0` / `zephyr_ka200` 分支）。

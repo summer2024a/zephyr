@@ -51,16 +51,35 @@ qemu-system-aarch64 \
   -kernel ~/xia/zephyrproject/build_a53_shell_fs/zephyr/zephyr.elf
 ```
 
-## 编译He200板卡运行Shell控制台实例
+## 编译 He200 板卡（Shell + 8 核 SMP）
 
-移植说明、SPL 直连启动与问题分析见 [boards/lynxi/PORTING.md](boards/lynxi/PORTING.md)。
+移植说明、SPL 直连启动、多核与外设路线图见 [zephyr/boards/lynxi/PORTING.md](zephyr/boards/lynxi/PORTING.md)。
 
-```
-west build -b he200 -d build_he200_final app_shell_fs --pristine
-west build -b he200 -d build_he200_final app_shell_fs -t menuconfig
-west build -b he200_ep -d build_he200_ep_final app_shell_fs -t menuconfig
+推荐板型 **`he200_ep`**（链接地址 `0x800100000`，与 SPL 烧录 `u-boot.bin` 一致）：
+
+```bash
+# 在 zephyrproject 工作区根目录执行
 west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
+# 产物：build_he200_ep_final/zephyr/zephyr.bin
+```
 
+可选：`west build -t menuconfig -d build_he200_ep_final` 调整 Kconfig。  
+通用板 `he200`：`west build -b he200 -d build_he200 app_shell_fs --pristine`
+
+### 烧录
+
+将 `zephyr.bin` 写入原 **u-boot.bin** 分区（与 RT-Thread 相同 SPL 路径）。
+
+### 串口与 Shell
+
+- 115200，UART0，时钟 50MHz
+- 命令：`he200_smp`、`kernel thread stacks`（验收 8 核见 PORTING.md §10.1）
+
+### 8 核 SMP（默认已开启）
+
+启动应出现 `Secondary CPU core 1..7 (MPID:…)` 与 `he200_ep: SMP=on online_cpus=8`。详见 PORTING.md。
+
+---
 
 ## He200 板卡入口点偏移量分析
 
