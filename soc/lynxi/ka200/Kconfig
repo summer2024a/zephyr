@@ -14,3 +14,11 @@ config SOC_LYNXI_KA200
 	select SYS_CLOCK_EXISTS
 	help
 	  Lynxi KA200 ARM64 SoC (8 cores)
+
+config SOC_LYNXI_KA200_SPIN_TABLE
+	bool "Use spin-table to boot secondary CPUs (no PSCI)"
+	default y
+	depends on SOC_LYNXI_KA200
+	help
+	  KA200 / HE200 firmware does not implement PSCI CPU_ON. Match
+	  RT-Thread cpu_release_paddr[] at 0x401ff00..0x401ff30.

@@ -9,6 +9,10 @@ zephyr_library_sources_ifdef(CONFIG_GIC_V3
     ${CMAKE_CURRENT_SOURCE_DIR}/he200_ep_spl.c
 )
 
+zephyr_library_sources_ifdef(CONFIG_SHELL
+    ${CMAKE_CURRENT_SOURCE_DIR}/he200_ep_smp_shell.c
+)
+
 zephyr_library_sources_ifdef(CONFIG_HE200_EP_EARLY_UART_DEBUG
     ${CMAKE_CURRENT_SOURCE_DIR}/he200_ep_early_uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/he200_ep_boot_debug.S

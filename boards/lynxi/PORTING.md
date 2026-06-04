@@ -101,6 +101,7 @@ SPL 日志中 `mkimage signature not found` / `ih_magic = 2a0003f4` 属用 **leg
 ```bash
 west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
 # 产物：build_he200_ep_final/zephyr/zephyr.bin
+# he200_ep_defconfig 已默认开启 CONFIG_SMP=8 核 + spin-table
 ```
 
 `he200` 板：
@@ -231,17 +232,80 @@ Starting shell example
 | 有 `uart:~$`，按 Enter 仍无反应 | ① Shell 在 **定时器 ISR** 里 `uart_poll_in` 与 `printk` 抢锁 ② DW UART **FIFO** 与 RT 不一致 | 见下：work 队列轮询、`SOC_LYNXI_KA200` 关 FIFO、`ACCESS_WORD_ONLY` |
 | 有 `uart:~$`，键盘无响应 | 未开 **`CONFIG_ARMV8_A_NS`** 时，原生 `intc_gicv3` 把 SPI 配成 Secure G0 且 `irq_enable` 不写 IROUTER | 板级 defconfig 设 `ARMV8_A_NS=y`；**不要**再手写 GIC 寄存器 |
 | Shell RX | DTS `gic` + `uart0` + `drivers/interrupt_controller/intc_gicv3.c` + `uart_ns16550` | KA200 无 FIFO 时 `irq_rx_ready` 须看 LSR.DR |
+
+### Shell 自带命令（`CONFIG_KERNEL_SHELL` 等，输入 `help` 查看）
+
+上游 **没有** ARM GICv3 寄存器查看命令（RISC-V 才有 `plic`）。中断相关请用 **`isr_table sw_isr_table`**（向量表，含 hwirq 57 对应 UART ISR）。
+
+| 类别 | 自带命令 |
+|------|----------|
+| 总览 | `help`、`help -a` |
+| 中断 | `isr_table sw_isr_table` |
+| 内存/寄存器 | `devmem 0x10006000 16 32`、`kernel heap` |
+| 内核 | `kernel version`、`kernel uptime`、`kernel cycles`、`kernel thread list`（含各线程 **CPU%**）、`kernel thread stacks`、`kernel heap` |
+| CPU 占用 | **无 `top`**；用 `kernel thread list` 看 `Total execution cycles (N %)`，需 `CONFIG_THREAD_RUNTIME_STATS` |
+| 设备 | `device list` |
+| 日志 | `log list`、`log enable` |
+| 其它 | `date`、`kernel reboot cold`、`kernel panic` |
 | 乱码 | DTS 24MHz 与硬件 50MHz 不一致 | 改 `he200_common.dtsi` |
 
 `he200_ep`：`soc_prep_hook()` 内始终调用 `he200_ep_spl_soc_init()`（不依赖 early debug）。
 
 ---
 
-## 10. 后续工作
+## 10. 后续工作（多核与外设路线图）
+
+对照：**RT-Thread** `bsp/lynxi/he200`、**lynxi-linux** `arch/arm64/boot/dts/lynxi/lynchip-lite-base.dtsi`、**lynxi-drivers**（`lyn_drv/drivers/base/dma/`、`sysdma/` 等）。
+
+### 10.1 多核 SMP（spin-table）
+
+| 项 | RT / Linux | Zephyr 现状 |
+|----|------------|-------------|
+| DTS `cpu-release-addr` | 各核均为 `0x0401fff0`（ROM 约定） | `he200_common.dtsi` 已写 |
+| 实际 release 单元 | RT `cpu_release_paddr[]`：`0x401ff00` 起每核 +8 | **`soc/lynxi/ka200/pm_cpu_ops_spin_table.c`** |
+| MPIDR | `0..3` + `0x100..0x103` | DTS `reg` 与 RT `rt_cpu_mpidr_table` 一致 |
+| IPI | GICv3 SGI；跨 cluster 注意 Aff1 | 上游 `arch/arm64/core/smp.c` + `gic_raise_sgi`；异常时对照 RT `gicv3.c` |
+
+**默认镜像（`build_he200_ep_final`）已含 SMP**，无需再叠加 `he200_ep_smp.conf`。
+
+验收：
+
+- Shell：`he200_smp` 或 `kernel thread stacks` 见 **idle 00～07**、**IRQ 00～07** ⇒ 8 核已进调度器。
+- 启动串口：`Secondary CPU core N ... is up`（N=1..7）及 `he200_ep: SMP=on`。**须关闭 `CONFIG_LOG_PRINTK`**，否则 printk 进 log 而 Shell 串口为 `LOG_LEVEL_NONE`，这些行不会出现在 UART 上。
+
+### 10.2 外设 DTS（已预置，默认 disabled）
+
+文件：`boards/lynxi/common/he200_peripherals.dtsi`（由 `he200_common.dtsi` include）。
+
+| 外设 | 基址 | SPI | Linux compatible | Zephyr 目标驱动 |
+|------|------|-----|------------------|-----------------|
+| GPIO | `0x1000e000` | 23 | `snps,dw-apb-gpio` | `gpio_dw` |
+| GMAC | `0x10020000` | 78 | `snps,dwmac-*` | `eth_dwmac` / 板级 hook |
+| eMMC | `0x10040000` | 80 | `lynxi,dwcmshc-sdhci` | 需 Lynxi SDHCI 补丁或适配 `sdhci` |
+| I2C0~3 | `0x10002000`… | 28~31 | `snps,designware-i2c` | `i2c_dw` |
+| SPI0 | `0x1000a000` | 32 | `snps,dw-apb-ssi` | `spi_dw` |
+| DMA | `0x1001a000` | 83 | `snps,axi-dma-1.01a` | `dma_dw_axi` |
+
+MMU：`soc/lynxi/ka200/mmu_regions.c` 已增加 **SPIN_TABLE** + **SOC_APB**（`0x10002000`，256KB），避免单段 320MB 映射。
+
+### 10.3 驱动实现顺序（建议）
+
+1. **CPR 时钟门控** — 扩展 `he200_ep_spl.c` / 公共 `lynxi_sysctl_lite`（对齐 RT `drv_sysctl_lite.c`：eMMC `0x88`、GMAC `0x8c`、I2C `0x94/0x98`、DMA `0x6c`）
+2. **CPR IP 复位** — RT `drv_reset.c`（ETH/I2C/RTC/DMA 脉冲）
+3. **GPIO** → pinmux / 中断（Linux `lynxi_pinfun` + lynxi-drivers）
+4. **I2C** → 传感器 / PMIC
+5. **DMA** — mem2mem（RT `drv_dw_axi_dma.c`；lynxi-drivers `lynd_dma.c`）
+6. **eMMC** — HS200、`SDHCI_CLOCK_PLL_EN`（RT README / `lx_mmc_clock_freq_change`）
+7. **GMAC** — Synopsys + CPR `0x8c` RGMII（RT `drivers/net/gmac/`）
+8. **SPI / SFC** — Linux 含 `lynxi,spi-sfc` 与 AHB boot SPI，后期单独板级
+
+### 10.4 待办 checklist
 
 - [ ] `he200` 板启用 Shell 并做 SPL 启动验证（当前 defconfig 关闭 UART/Shell）
-- [ ] 按需扩展 `mmu_regions.c`（EMMC、PCIe、DMA 等），避免单段过大映射
-- [ ] 多核 `CONFIG_MP_MAX_NUM_CPUS` 与 RT SMP 对齐
+- [x] spin-table `pm_cpu_on` + `he200_ep_smp.conf` 骨架
+- [x] `he200_peripherals.dtsi` + MMU SOC_APB / SPIN_TABLE
+- [ ] SMP 实板 8 核 + IPI 调度压测（对照 RT README §5 IPI）
+- [ ] eMMC / GMAC / GPIO / I2C / SPI / DMA 驱动与 `status = "okay"`
 - [ ] 将本文档链接加入 `zephyrproject/README.md` 的 He200 章节
 - [ ] 若新增 `he200_rc` 板：复用 `he200_common.dtsi` + 独立 `defconfig`/linker 即可
 

@@ -20,7 +20,7 @@ config IDT_LIST_SIZE
 config HE200_EP_EARLY_UART_DEBUG
 	bool "Early UART boot stage markers on UART0 (SPL direct boot)"
 	depends on BOARD_HE200_EP
-	default y
+	default n
 	help
 	  For SPL loading zephyr.bin as u-boot.bin: init UART0 @ 115200
 	  (50MHz clock, same as RT-Thread he200) and print stage tags

@@ -20,7 +20,13 @@ static const struct arm_mmu_region mmu_regions[] = {
 			      DT_REG_SIZE_BY_IDX(DT_INST(0, arm_gic), 1),
 			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
 
-	/* UART0 + CPR (minimal device map; avoids xlat table exhaustion) */
+	/* Spin-table release cells (RT cpu_release_paddr[], 0x401ff00..0x401ff30) */
+	MMU_REGION_FLAT_ENTRY("SPIN_TABLE",
+			      0x401ff00UL,
+			      0x40UL,
+			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
+
+	/* UART0 + CPR */
 	MMU_REGION_FLAT_ENTRY("UART0",
 			      0x10006000UL,
 			      0x1000UL,
@@ -29,6 +35,12 @@ static const struct arm_mmu_region mmu_regions[] = {
 	MMU_REGION_FLAT_ENTRY("CPR",
 			      0x12500000UL,
 			      0x10000UL,
+			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
+
+	/* APB peripherals (GPIO / I2C / SPI / DMA / GMAC / eMMC) */
+	MMU_REGION_FLAT_ENTRY("SOC_APB",
+			      0x10002000UL,
+			      0x0003e000UL,
 			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
 };
 
