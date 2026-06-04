@@ -113,6 +113,11 @@ SECTION_SUBSEC_FUNC(TEXT,_reset_section,__reset)
 GTEXT(__start)
 SECTION_SUBSEC_FUNC(TEXT,_reset_section,__start)
 
+#ifdef CONFIG_HE200_EP_EARLY_UART_DEBUG
+GTEXT(he200_ep_reset_hook)
+	bl	he200_ep_reset_hook
+#endif
+
 #ifdef CONFIG_WAIT_AT_RESET_VECTOR
 resetwait:
 	wfe

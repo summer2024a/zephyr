@@ -1011,9 +1011,17 @@ static sys_slist_t domain_list;
  */
 __attribute__((target("branch-protection=none")))
 #endif
+#if defined(CONFIG_HE200_EP_EARLY_UART_DEBUG)
+extern void he200_ep_prep_trace(char step);
+#endif
+
 void z_arm64_mm_init(bool is_primary_core)
 {
 	unsigned int flags = 0U;
+
+#if defined(CONFIG_HE200_EP_EARLY_UART_DEBUG)
+	he200_ep_prep_trace('M');
+#endif
 
 	__ASSERT(CONFIG_MMU_PAGE_SIZE == KB(4),
 		 "Only 4K page size is supported\n");
@@ -1032,8 +1040,16 @@ void z_arm64_mm_init(bool is_primary_core)
 		setup_page_tables(&kernel_ptables);
 	}
 
+#if defined(CONFIG_HE200_EP_EARLY_UART_DEBUG)
+	he200_ep_prep_trace('T');
+#endif
+
 	/* currently only EL1 is supported */
 	enable_mmu_el1(&kernel_ptables, flags);
+
+#if defined(CONFIG_HE200_EP_EARLY_UART_DEBUG)
+	he200_ep_prep_trace('E');
+#endif
 }
 
 static void sync_domains(uintptr_t virt, size_t size, const char *name)
