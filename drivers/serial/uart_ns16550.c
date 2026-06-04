@@ -549,8 +549,19 @@ static uint32_t get_ite_uart_baudrate_divisor(const struct device *dev,
 static inline int ns16550_read_char(const struct device *dev, unsigned char *c)
 {
 	const struct uart_ns16550_dev_config * const dev_cfg = dev->config;
+	bool rx_ready;
 
-	if ((ns16550_inbyte(dev_cfg, LSR(dev)) & LSR_RXRDY) != 0) {
+#ifdef CONFIG_UART_NS16550_DW8250_DW_APB
+	/* DesignWare APB: prefer USR when FIFO is on; LSR.DR alone can miss bytes */
+	rx_ready = (ns16550_inbyte(dev_cfg, USR(dev)) & USR_RFNE) != 0U;
+	if (!rx_ready) {
+		rx_ready = (ns16550_inbyte(dev_cfg, LSR(dev)) & LSR_RXRDY) != 0U;
+	}
+#else
+	rx_ready = (ns16550_inbyte(dev_cfg, LSR(dev)) & LSR_RXRDY) != 0U;
+#endif
+
+	if (rx_ready) {
 		*c = ns16550_inbyte(dev_cfg, RDR(dev));
 		return 0;
 	}
@@ -721,6 +732,14 @@ static int uart_ns16550_configure(const struct device *dev,
 
 	ns16550_outbyte(dev_cfg, MDC(dev), mdc);
 
+#if defined(CONFIG_SOC_LYNXI_KA200)
+	/*
+	 * Lynxi DW APB (HE200): match RT-Thread — no FIFO. Zephyr FIFO mode breaks
+	 * reliable poll_in RX on this IP.
+	 */
+	ns16550_outbyte(dev_cfg, FCR(dev), FCR_RCVRCLR | FCR_XMITCLR);
+	dev_data->fifo_size = 1;
+#else
 	/*
 	 * Program FIFO: enabled, mode 0 (set for compatibility with quark),
 	 * generate the interrupt at 8th byte
@@ -744,6 +763,7 @@ static int uart_ns16550_configure(const struct device *dev,
 	} else {
 		dev_data->fifo_size = 1;
 	}
+#endif
 
 	/* clear the port */
 	(void)ns16550_read_char(dev, &c);
@@ -954,8 +974,12 @@ static int uart_ns16550_init(const struct device *dev)
 static int uart_ns16550_poll_in(const struct device *dev, unsigned char *c)
 {
 	struct uart_ns16550_dev_data *data = dev->data;
+	k_spinlock_key_t key;
 	int ret = -1;
-	k_spinlock_key_t key = k_spin_lock(&data->lock);
+
+	if (k_spin_trylock(&data->lock, &key) != 0) {
+		return -1;
+	}
 
 	ret = ns16550_read_char(dev, c);
 
@@ -1276,11 +1300,19 @@ static int uart_ns16550_irq_rx_ready(const struct device *dev)
 	k_spinlock_key_t key = k_spin_lock(&data->lock);
 
 #ifdef CONFIG_UART_NS16550_DW8250_DW_APB
-	/* Use USR register to check if RX FIFO has data */
 	const struct uart_ns16550_dev_config * const dev_cfg = dev->config;
-
-	int ret = ((ns16550_inbyte(dev_cfg, USR(dev)) & USR_RFNE) &&
-		(ns16550_inbyte(dev_cfg, IER(dev)) & IER_RXRDY)) ? 1 : 0;
+	bool ier_rx = (ns16550_inbyte(dev_cfg, IER(dev)) & IER_RXRDY) != 0U;
+#if defined(CONFIG_SOC_LYNXI_KA200)
+	/*
+	 * HE200 matches RT-Thread (no FIFO): bytes sit in RBR with LSR.DR set;
+	 * USR.RFNE may stay clear, so irq_rx_ready must also check LSR.
+	 */
+	bool rx_data = ((ns16550_inbyte(dev_cfg, LSR(dev)) & LSR_RXRDY) != 0U) ||
+		       ((ns16550_inbyte(dev_cfg, USR(dev)) & USR_RFNE) != 0U);
+#else
+	bool rx_data = (ns16550_inbyte(dev_cfg, USR(dev)) & USR_RFNE) != 0U;
+#endif
+	int ret = (ier_rx && rx_data) ? 1 : 0;
 #else
 	int ret = ((IIRC(dev) & IIR_ID) == IIR_RBRF) ? 1 : 0;
 #endif
@@ -1344,8 +1376,14 @@ static int uart_ns16550_irq_is_pending(const struct device *dev)
 
 	bool tx_pending = ((ns16550_inbyte(dev_cfg, USR(dev)) & (USR_TFNF | USR_TFE)) &&
 		(ns16550_inbyte(dev_cfg, IER(dev)) & IER_TBE));
+#if defined(CONFIG_SOC_LYNXI_KA200)
+	bool rx_pending = ((ns16550_inbyte(dev_cfg, IER(dev)) & IER_RXRDY) &&
+		(((ns16550_inbyte(dev_cfg, LSR(dev)) & LSR_RXRDY) != 0U) ||
+		 ((ns16550_inbyte(dev_cfg, USR(dev)) & USR_RFNE) != 0U)));
+#else
 	bool rx_pending = ((ns16550_inbyte(dev_cfg, USR(dev)) & USR_RFNE) &&
 		(ns16550_inbyte(dev_cfg, IER(dev)) & IER_RXRDY));
+#endif
 	int ret = (tx_pending || rx_pending) ? 1 : 0;
 #else
 	int ret = (!(IIRC(dev) & IIR_NIP)) ? 1 : 0;

@@ -70,7 +70,7 @@ struct shell_uart_polling {
 	struct shell_uart_common common;
 	struct ring_buf rx_ringbuf;
 	uint8_t rx_buf[CONFIG_SHELL_BACKEND_SERIAL_RX_RING_BUFFER_SIZE];
-	struct k_timer rx_timer;
+	struct k_work_delayable rx_work;
 };
 
 #ifdef CONFIG_SHELL_BACKEND_SERIAL_API_POLLING

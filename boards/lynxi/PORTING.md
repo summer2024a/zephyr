@@ -204,7 +204,8 @@ Starting shell example
 - [ ] `CONFIG_AARCH64_IMAGE_HEADER=y`（SPL 从 `0x800100000` 执行 header）
 - [ ] 烧录 `zephyr.bin` 而非 `zephyr.elf`
 - [ ] SPL entry `0x800100000` 与 `CONFIG_SRAM_BASE_ADDRESS` 一致
-- [ ] 可选：DTS `uart0` `clock-frequency = <50000000>`（与 RT 一致，避免驱动层波特率偏差）
+- [x] DTS `uart0` `clock-frequency = <50000000>`（与 RT 一致；错误时用 24MHz 会导致驱动重配波特率后 Shell 异常）
+- [x] `CONFIG_UART_NS16550_DW8250_DW_APB`（DesignWare APB 须用 USR 判断 TX/RX 就绪，否则 `uart:~$` 可能不打印）
 - [ ] 生产关闭 `CONFIG_HE200_EP_EARLY_UART_DEBUG`
 
 ---
@@ -221,7 +222,22 @@ Starting shell example
 
 ---
 
-## 9. 后续工作
+## 9. Shell 无 `uart:~$` 提示符
+
+| 现象 | 可能原因 | 处理 |
+|------|----------|------|
+| 有 Zephyr banner / `Starting shell example`，无 `uart:~$` | `device_is_ready(uart0)==0`，Shell `SYS_INIT` 静默失败 | 看 `main` 打印的 `shell uart: ..., ready=0`；查 MMU 是否映射 UART、CPR 时钟门 |
+| 有 banner，ready=1，仍无提示符 | 未启用 **DW8250 DW APB**，TX 中断 `irq_tx_ready` 恒为假 | `CONFIG_UART_NS16550_DW8250_DW_APB=y` |
+| 有 `uart:~$`，按 Enter 仍无反应 | ① Shell 在 **定时器 ISR** 里 `uart_poll_in` 与 `printk` 抢锁 ② DW UART **FIFO** 与 RT 不一致 | 见下：work 队列轮询、`SOC_LYNXI_KA200` 关 FIFO、`ACCESS_WORD_ONLY` |
+| 有 `uart:~$`，键盘无响应 | 未开 **`CONFIG_ARMV8_A_NS`** 时，原生 `intc_gicv3` 把 SPI 配成 Secure G0 且 `irq_enable` 不写 IROUTER | 板级 defconfig 设 `ARMV8_A_NS=y`；**不要**再手写 GIC 寄存器 |
+| Shell RX | DTS `gic` + `uart0` + `drivers/interrupt_controller/intc_gicv3.c` + `uart_ns16550` | KA200 无 FIFO 时 `irq_rx_ready` 须看 LSR.DR |
+| 乱码 | DTS 24MHz 与硬件 50MHz 不一致 | 改 `he200_common.dtsi` |
+
+`he200_ep`：`soc_prep_hook()` 内始终调用 `he200_ep_spl_soc_init()`（不依赖 early debug）。
+
+---
+
+## 10. 后续工作
 
 - [ ] `he200` 板启用 Shell 并做 SPL 启动验证（当前 defconfig 关闭 UART/Shell）
 - [ ] 按需扩展 `mmu_regions.c`（EMMC、PCIe、DMA 等），避免单段过大映射
@@ -231,7 +247,7 @@ Starting shell example
 
 ---
 
-## 10. 关键文件索引
+## 11. 关键文件索引
 
 | 路径 | 作用 |
 |------|------|

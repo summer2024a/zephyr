@@ -261,23 +261,41 @@ static void async_init(struct shell_uart_async *sh_uart)
 	__ASSERT_NO_MSG(err == 0);
 }
 
-static void polling_rx_timeout_handler(struct k_timer *timer)
+/*
+ * Poll UART from the system work queue, not a timer ISR. uart_poll_in() takes
+ * the driver spinlock; calling it from ISR while printk holds the lock deadlocks.
+ */
+static void polling_rx_work_handler(struct k_work *work)
 {
+	struct k_work_delayable *dwork = k_work_delayable_from_work(work);
+	struct shell_uart_polling *sh_uart =
+		CONTAINER_OF(dwork, struct shell_uart_polling, rx_work);
 	uint8_t c;
-	struct shell_uart_polling *sh_uart = k_timer_user_data_get(timer);
+	bool rx_added = false;
 
-	while ((ring_buf_space_get(&sh_uart->rx_ringbuf) > 0) &&
-	       (uart_poll_in(sh_uart->common.dev, &c) == 0)) {
+	while (ring_buf_space_get(&sh_uart->rx_ringbuf) > 0) {
+		int got;
+
+		got = uart_poll_in(sh_uart->common.dev, &c);
+		if (got != 0) {
+			break;
+		}
+
 		ring_buf_put(&sh_uart->rx_ringbuf, &c, 1);
+		rx_added = true;
+	}
+
+	if (rx_added) {
 		sh_uart->common.handler(SHELL_TRANSPORT_EVT_RX_RDY, sh_uart->common.context);
 	}
+
+	(void)k_work_reschedule(dwork, RX_POLL_PERIOD);
 }
 
 static void polling_init(struct shell_uart_polling *sh_uart)
 {
-	k_timer_init(&sh_uart->rx_timer, polling_rx_timeout_handler, NULL);
-	k_timer_user_data_set(&sh_uart->rx_timer, (void *)sh_uart);
-	k_timer_start(&sh_uart->rx_timer, RX_POLL_PERIOD, RX_POLL_PERIOD);
+	k_work_init_delayable(&sh_uart->rx_work, polling_rx_work_handler);
+	(void)k_work_schedule(&sh_uart->rx_work, RX_POLL_PERIOD);
 
 	ring_buf_init(&sh_uart->rx_ringbuf, CONFIG_SHELL_BACKEND_SERIAL_RX_RING_BUFFER_SIZE,
 		      sh_uart->rx_buf);
@@ -331,7 +349,7 @@ static void async_uninit(struct shell_uart_async *sh_uart)
 
 static void polling_uninit(struct shell_uart_polling *sh_uart)
 {
-	k_timer_stop(&sh_uart->rx_timer);
+	k_work_cancel_delayable(&sh_uart->rx_work);
 }
 
 static int uninit(const struct shell_transport *transport)
@@ -524,6 +542,7 @@ const struct shell_transport_api shell_uart_transport_api = {
 };
 
 SHELL_UART_DEFINE(shell_transport_uart);
+
 SHELL_DEFINE(shell_uart, CONFIG_SHELL_PROMPT_UART, &shell_transport_uart,
 	     CONFIG_SHELL_BACKEND_SERIAL_LOG_MESSAGE_QUEUE_SIZE,
 	     CONFIG_SHELL_BACKEND_SERIAL_LOG_MESSAGE_QUEUE_TIMEOUT,

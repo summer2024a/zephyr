@@ -12,19 +12,42 @@ config SYS_CLOCK_HW_CYCLES_PER_SEC
 	default 1000000000
 
 config SYS_CLOCK_TICKS_PER_SEC
-	default 100
+	default 1000
 
 config NUM_IRQS
 	default 256
 
 config HE200_EP_EARLY_UART_DEBUG
-	default y
+	default n
 
 config ARM64_BOOT_DISABLE_DCACHE
 	default y if HE200_EP_EARLY_UART_DEBUG
 
 config SOC_PREP_HOOK
-	default y if HE200_EP_EARLY_UART_DEBUG
+	default y
+
+# RT/Linux use GICv3 affinity routing + non-secure Group1 (see arm_gic_dist_init in RT)
+config ARMV8_A_NS
+	default y
+
+config UART_NS16550_DW8250_DW_APB
+	default y
+
+config UART_NS16550_ACCESS_WORD_ONLY
+	default y
+
+config UART_NS16550_WA_ISR_REENABLE_INTERRUPT
+	default y
+
+# GIC: intc_gicv3 from DTS; CONFIG_ARMV8_A_NS matches RT/Linux Group1NS + IROUTER
+config SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN
+	default y
+
+config SHELL_THREAD_PRIORITY_OVERRIDE
+	default y
+
+config SHELL_THREAD_PRIORITY
+	default 10
 
 config MAX_XLAT_TABLES
 	default 16

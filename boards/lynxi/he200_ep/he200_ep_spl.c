@@ -4,9 +4,13 @@
  *
  * SPL loads zephyr.bin as u-boot.bin (entry 0x800100000). Match RT-Thread he200
  * bring-up that full U-Boot used to perform.
+ *
+ * GIC: use Zephyr intc_gicv3 from he200_common.dtsi (arm,gic-v3). No board GIC
+ * register poking — enable CONFIG_ARMV8_A_NS so dist/affinity matches RT/Linux.
  */
 
 #include <stdint.h>
+#include <zephyr/arch/cpu.h>
 
 /* Lynxi CPR / sysctl — same offsets as RT-Thread drv_sysctl_lite.c */
 #define HE200_CPR_BASE          0x12500000U
@@ -80,6 +84,9 @@ void z_arm64_el1_plat_init(void)
 #ifdef CONFIG_SOC_PREP_HOOK
 void soc_prep_hook(void)
 {
+	/* CPR clock gates before PRE_KERNEL UART driver (any EL / debug off) */
+	he200_ep_spl_soc_init();
+
 #ifdef CONFIG_HE200_EP_EARLY_UART_DEBUG
 	extern void he200_ep_boot_marker(char tag);
 
