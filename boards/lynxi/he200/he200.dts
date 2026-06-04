@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) 2024 Lynxi Technologies Co., Ltd.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include "../common/he200_common.dtsi"
+
+/ {
+	model = "Lynxi HE200 Development Board";
+
+	memory@800000000 {
+		device_type = "memory";
+		reg = <0x8 0x00000000 0x2 0x00000000>;
+	};
+};

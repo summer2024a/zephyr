@@ -1,0 +1,6 @@
+board:
+  name: he200_ep
+  full_name: Lynxi HE200 Entry Point Development Board
+  vendor: lynxi
+  socs:
+  - name: ka200

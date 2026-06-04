@@ -1,0 +1,11 @@
+identifier: he200
+name: Lynxi HE200
+type: mcu
+arch: arm64
+ram: 8192
+flash: 16384
+toolchain:
+  - zephyr
+  - cross-compiler
+supported:
+  - uart

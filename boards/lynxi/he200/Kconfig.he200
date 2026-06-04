@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_HE200
+	select SOC_LYNXI_KA200 if BOARD_HE200_KA200
+
+config BOARD_HE200_KA200
+	select SOC_LYNXI_KA200

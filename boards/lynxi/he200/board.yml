@@ -1,0 +1,6 @@
+board:
+  name: he200
+  full_name: Lynxi HE200 Development Board
+  vendor: lynxi
+  socs:
+  - name: ka200

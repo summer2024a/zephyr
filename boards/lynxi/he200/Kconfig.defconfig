@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_HE200
+
+config ARM_ARCH_TIMER
+	default y
+
+config CACHE_MANAGEMENT
+	default y
+
+config SYS_CLOCK_HW_CYCLES_PER_SEC
+	default 1000000000
+
+config SYS_CLOCK_TICKS_PER_SEC
+	default 100
+
+config NUM_IRQS
+	default 256
+
+endif
