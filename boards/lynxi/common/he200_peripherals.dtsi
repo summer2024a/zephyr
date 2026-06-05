@@ -38,10 +38,22 @@
 		};
 
 		mmc0: mmc@10040000 {
-			compatible = "cdns,sdhc";
+			compatible = "lynxi,dwcmshc-sdhci";
 			reg = <0x00 0x10040000 0x00 0x40000>;
 			interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+			max-bus-freq = <200000000>;
+			min-bus-freq = <400000>;
+			power-delay-ms = <0>;
+			mmc-hs200-1_8v;
+			lynxi,emmc;
+			lynxi,io-1v8;
 			status = "disabled";
+
+			mmc_disk: disk {
+				compatible = "zephyr,mmc-disk";
+				disk-name = "SD2";
+				bus-width = <8>;
+			};
 		};
 
 		i2c0: i2c@10002000 {

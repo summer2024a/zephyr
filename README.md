@@ -51,11 +51,10 @@ qemu-system-aarch64 \
   -kernel ~/xia/zephyrproject/build_a53_shell_fs/zephyr/zephyr.elf
 ```
 
-## 编译 He200 板卡（Shell + 8 核 SMP）
+## 编译 He200 板卡（统一目录 `build_he200_ep_final`）
 
-移植说明、SPL 直连启动、多核与外设路线图见 [zephyr/boards/lynxi/PORTING.md](zephyr/boards/lynxi/PORTING.md)。
-
-推荐板型 **`he200_ep`**（链接地址 `0x800100000`，与 SPL 烧录 `u-boot.bin` 一致）：
+移植说明见 [zephyr/boards/lynxi/PORTING.md](zephyr/boards/lynxi/PORTING.md)。  
+**SMP、Shell、eMMC 及后续外设均编入同一镜像**，固定使用构建目录 **`build_he200_ep_final`**，应用 **`app_shell_fs`**：
 
 ```bash
 # 在 zephyrproject 工作区根目录执行
@@ -63,8 +62,9 @@ west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
 # 产物：build_he200_ep_final/zephyr/zephyr.bin
 ```
 
-可选：`west build -t menuconfig -d build_he200_ep_final` 调整 Kconfig。  
-通用板 `he200`：`west build -b he200 -d build_he200 app_shell_fs --pristine`
+增量：`west build -d build_he200_ep_final`（勿为各模块单独建 `build_he200_emmc` 等目录）  
+menuconfig：`west build -t menuconfig -d build_he200_ep_final`  
+通用板 `he200`（无板级 eMMC）：`west build -b he200 -d build_he200 app_shell_fs --pristine`
 
 ### 烧录
 
@@ -73,7 +73,8 @@ west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
 ### 串口与 Shell
 
 - 115200，UART0，时钟 50MHz
-- 命令：`he200_smp`、`kernel thread stacks`（验收 8 核见 PORTING.md §10.1）
+- 命令：`ka200_smp`、`kernel thread stacks`（验收 8 核见 PORTING.md §10.1）
+- eMMC：启动见 `he200 eMMC: init disk SD2`、`disk_access_init OK`、`geometry: sectors=…`；开启 `CONFIG_APP_HE200_EMMC_AUTO_MOUNT=y` 后另见 `mounted /SD2: OK`，Shell：`fs ls /SD2:`（详见 PORTING.md §10.5）
 
 ### 8 核 SMP（默认已开启）
 

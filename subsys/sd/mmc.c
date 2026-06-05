@@ -95,12 +95,73 @@ static int mmc_set_timing(struct sd_card *card, struct mmc_ext_csd *card_ext_csd
 /* Enable cache for emmc if applicable */
 static int mmc_set_cache(struct sd_card *card, struct mmc_ext_csd *card_ext_csd);
 
+/* RT mmcsd_go_idle: CMD0 with 1ms padding (no CS on eMMC) */
+static int mmc_go_idle(struct sd_card *card)
+{
+	struct sdhc_command cmd = {0};
+	int ret;
+
+	sd_delay(1);
+	cmd.opcode = SD_GO_IDLE_STATE;
+	cmd.arg = 0;
+	cmd.response_type = SD_RSP_TYPE_NONE;
+	cmd.timeout_ms = CONFIG_SD_CMD_TIMEOUT;
+	ret = sdhc_request(card->sdhc, &cmd, NULL);
+	sd_delay(1);
+	return ret;
+}
+
+/*
+ * RT mmc_send_op_cond(host, 0, &ocr): single CMD1 arg=0 probe during detect.
+ */
+static int mmc_probe_op_cond(struct sd_card *card, uint32_t *ocr_out)
+{
+	struct sdhc_command cmd = {0};
+	int ret;
+
+	cmd.opcode = MMC_SEND_OP_COND;
+	cmd.arg = 0;
+	cmd.response_type = SD_RSP_TYPE_R3;
+	cmd.timeout_ms = CONFIG_SD_CMD_TIMEOUT;
+
+	ret = sdhc_request(card->sdhc, &cmd, NULL);
+	if (ret) {
+		return ret;
+	}
+
+	*ocr_out = cmd.response[0];
+	card->type = CARD_MMC;
+	return 0;
+}
+
+/* RT mmcsd_select_voltage: mask card OCR with host-supported voltages */
+static uint32_t mmc_select_ocr(struct sd_card *card, uint32_t probed)
+{
+	uint32_t host_mask = 0U;
+	uint32_t ocr;
+
+	if (card->host_props.host_caps.vol_180_support) {
+		host_mask |= MMC_OCR_VDD170_195FLAG;
+	}
+	if (card->host_props.host_caps.vol_330_support ||
+	    card->host_props.host_caps.vol_300_support) {
+		host_mask |= MMC_OCR_VDD27_36FLAG;
+	}
+
+	ocr = probed & host_mask;
+	if (ocr == 0U) {
+		ocr = host_mask;
+	}
+	return ocr | MMC_OCR_SECTOR_MODE;
+}
+
 /*
  * Initialize MMC card for use with subsystem
  */
 int mmc_card_init(struct sd_card *card)
 {
 	int ret = 0;
+	uint32_t probed_ocr = 0U;
 	uint32_t ocr_arg = 0U;
 	/* Keep CSDs/CID on stack for reduced RAM usage */
 	struct sd_csd card_csd = {0};
@@ -112,25 +173,35 @@ int mmc_card_init(struct sd_card *card)
 		return -EINVAL;
 	}
 
-	/* Set OCR Arguments */
-	if (card->host_props.host_caps.vol_180_support) {
-		ocr_arg |= MMC_OCR_VDD170_195FLAG;
-	}
-	if (card->host_props.host_caps.vol_330_support ||
-	    card->host_props.host_caps.vol_300_support) {
-		ocr_arg |= MMC_OCR_VDD27_36FLAG;
-	}
-	/* Modern SDHC always at least supports 512 byte block sizes,
-	 * which is enough to support sectors
+	/*
+	 * RT mmcsd_detect + init_mmc + mmcsd_mmc_init_card:
+	 * go_idle → CMD1 probe(arg=0) → go_idle → CMD1(ocr|HCS) → CMD2
 	 */
-	ocr_arg |= MMC_OCR_SECTOR_MODE;
+	ret = mmc_go_idle(card);
+	if (ret) {
+		return ret;
+	}
 
-	/* CMD1 */
+	ret = mmc_probe_op_cond(card, &probed_ocr);
+	if (ret) {
+		LOG_DBG("MMC probe CMD1 failed");
+		return ret;
+	}
+
+	ret = mmc_go_idle(card);
+	if (ret) {
+		return ret;
+	}
+
+	ocr_arg = mmc_select_ocr(card, probed_ocr);
+
 	ret = mmc_send_op_cond(card, ocr_arg);
 	if (ret) {
 		LOG_DBG("Failed to query card OCR");
 		return ret;
 	}
+
+	sd_delay(10);
 
 	/* CMD2 */
 	ret = card_read_cid(card, cid);

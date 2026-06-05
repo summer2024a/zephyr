@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 config BOARD_HE200_EP
+	help
+	  Zephyr board target for HE200 EP (KA200_EP silicon, SPL @ 0x800100000).
+	  Shared peripherals use SOC_LYNXI_KA200; this board adds linker/SPL/early
+	  UART only. Silicon SKU diff vs RC is PCIe EP — see PORTING.md §1.1.
 	select SOC_LYNXI_KA200 if BOARD_HE200_EP_KA200
 
 config BOARD_HE200_EP_KA200
@@ -16,20 +20,3 @@ config IDT_LIST_BASE_ADDRESS
 config IDT_LIST_SIZE
 	int "IDT List Size (KB)"
 	default 32
-
-config HE200_EP_EARLY_UART_DEBUG
-	bool "Early UART boot stage markers on UART0 (SPL direct boot)"
-	depends on BOARD_HE200_EP
-	default n
-	help
-	  For SPL loading zephyr.bin as u-boot.bin: init UART0 @ 115200
-	  (50MHz clock, same as RT-Thread he200) and print stage tags
-	  before printk works.
-
-	  'S'  = __start (assembly, first instruction after image header branch)
-	  line "Zephyr SPL" + EL digit at z_arm64_el_highest_plat_init
-	  'G'/'g' = before/after EL2 GIC SRE in he200_ep_init.c
-	  'L'  = z_arm64_el1_plat_init (after SPL EL1 SCTLR fixup)
-
-	  Also enables CPR UART clock gates and defers SCTLR.C until MMU init,
-	  matching RT-Thread SPL boot when zephyr.bin replaces u-boot.bin.

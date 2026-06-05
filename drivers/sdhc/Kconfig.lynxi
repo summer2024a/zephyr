@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Lynxi Technologies Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+config SDHC_LYNXI_DWCMSHC
+	bool "Lynxi DWC MSHC SDHCI host"
+	default y
+	depends on DT_HAS_LYNXI_DWCMSHC_SDHCI_ENABLED
+	select SDHC_SUPPORTS_NATIVE_MODE
+	help
+	  Port of RT-Thread bsp/lynxi/he200/drivers/drv_sdhci.c. Differences:
+	  R3/R4 OCR response[0] <<= 8 for Zephyr mmc_send_op_cond(); CMD TIMEOUT
+	  is masked out of INT_ENABLE/SIGNAL (DWC reports 0x18000 before CC).
+
+config LYNXI_DWCMSHC_DEBUG
+	bool "Lynxi SDHCI register / IRQ probe printk"
+	depends on SDHC_LYNXI_DWCMSHC
+	default n
+	help
+	  Boot-time printk: host version, present state, interrupt regs,
+	  and optional CMD0 IRQ self-test (see also CONFIG_SDHC_LOG_LEVEL).
+
+config LYNXI_DWCMSHC_CMD_DEBUG
+	bool "Print each SDHCI command on UART (printk)"
+	depends on SDHC_LYNXI_DWCMSHC
+	default y if LYNXI_DWCMSHC_DEBUG
+	default n
+	help
+	  Log every CMD/data transaction (opcode, arg, ret, int_st) via printk
+	  so it is visible even when CONFIG_LOG_PRINTK is disabled.
+
+config LYNXI_DWCMSHC_INTERRUPT
+	bool "Use GIC IRQ for SDHCI completion (RT sdhci_irq + event)"
+	depends on SDHC_LYNXI_DWCMSHC
+	default y
+	help
+	  Same as RT: IRQ posts completion to k_sem (rt_event). CMD wait is
+	  sdhci_wait_command_done (ERROR|RESPONSE, fail on SDHCI_INT_ERROR).
+	  If disabled, poll SDHCI_INT_STATUS in a tight loop (no IRQ).
+
+config LYNXI_DWCMSHC_IRQ_SELFTEST
+	bool "Run CMD0 IRQ self-test during SDHCI driver init"
+	depends on SDHC_LYNXI_DWCMSHC && LYNXI_DWCMSHC_INTERRUPT
+	default n
+	help
+	  Disabled by default: init-time CMD0 can block boot if card clock
+	  is not up yet. Use shell / probe after disk_access_init instead.
+
+config SDHC_BUFFER_ALIGNMENT
+	default 64 if SDHC_LYNXI_DWCMSHC

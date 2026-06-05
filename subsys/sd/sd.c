@@ -22,14 +22,32 @@ LOG_MODULE_REGISTER(sd, CONFIG_SD_LOG_LEVEL);
 static inline int sd_idle(struct sd_card *card)
 {
 	struct sdhc_command cmd;
+	int ret;
 
-	/* Reset card with CMD0 */
+	/*
+	 * RT mmcsd_go_idle: CS timing + 1ms delays around CMD0 (eMMC: no CS pin,
+	 * delays still match identification phase pacing).
+	 */
+#ifdef CONFIG_MMC_STACK
+	if (card->type == CARD_MMC) {
+		sd_delay(1);
+	}
+#endif
+
 	cmd.opcode = SD_GO_IDLE_STATE;
 	cmd.arg = 0x0;
 	cmd.response_type = (SD_RSP_TYPE_NONE | SD_SPI_RSP_TYPE_R1);
 	cmd.retries = CONFIG_SD_CMD_RETRIES;
 	cmd.timeout_ms = CONFIG_SD_CMD_TIMEOUT;
-	return sdhc_request(card->sdhc, &cmd, NULL);
+	ret = sdhc_request(card->sdhc, &cmd, NULL);
+
+#ifdef CONFIG_MMC_STACK
+	if (card->type == CARD_MMC) {
+		sd_delay(1);
+	}
+#endif
+
+	return ret;
 }
 
 /*
@@ -191,6 +209,15 @@ static int sd_command_init(struct sd_card *card)
 	 */
 	sd_delay(1);
 
+#ifdef CONFIG_MMC_STACK
+	/*
+	 * eMMC / MMC disk (card->type preset to CARD_MMC) uses MMC protocol only.
+	 * Do not run SD CMD8 / ACMD41 probing — eMMC does not answer SD IF_COND.
+	 */
+	if (card->type == CARD_MMC) {
+		goto mmc_init;
+	}
+#endif /* CONFIG_MMC_STACK */
 
 	/*
 	 * Start card initialization and identification
@@ -202,16 +229,6 @@ static int sd_command_init(struct sd_card *card)
 	if (ret) {
 		return ret;
 	}
-#ifdef CONFIG_MMC_STACK
-	/*
-	 * If card type is already known, skip to relevant init.
-	 * SDMMC init takes pretty long, until it fails and we can
-	 * try MMC init.
-	 */
-	if (card->type == CARD_MMC) {
-		goto mmc_init;
-	}
-#endif /* CONFIG_MMC_STACK */
 #ifdef CONFIG_SDIO_STACK
 	/* Attempt to initialize SDIO card */
 	if (!sdio_card_init(card)) {
@@ -226,11 +243,7 @@ static int sd_command_init(struct sd_card *card)
 #endif /* CONFIG_SDMMC_STACK */
 #ifdef CONFIG_MMC_STACK
 mmc_init:
-	ret = sd_idle(card);
-	if (ret) {
-		LOG_ERR("Card error on CMD0");
-		return ret;
-	}
+	/* mmc_card_init() runs RT-style go_idle / probe / init (includes CMD0) */
 	if (!mmc_card_init(card)) {
 		return 0;
 	}

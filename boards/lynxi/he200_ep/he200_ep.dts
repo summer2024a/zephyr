@@ -10,8 +10,16 @@
 / {
 	model = "Lynxi HE200 Entry Point Development Board";
 
+	aliases {
+		sdhc0 = &mmc0;
+	};
+
 	memory@800000000 {
 		device_type = "memory";
 		reg = <0x8 0x00000000 0x2 0x00000000>;
 	};
+};
+
+&mmc0 {
+	status = "okay";
 };

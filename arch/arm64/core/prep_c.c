@@ -27,13 +27,13 @@ extern void z_arm64_mm_init(bool is_primary_core);
 __weak void z_arm64_mm_init(bool is_primary_core) { }
 
 #if defined(CONFIG_SOC_LYNXI_KA200)
-void he200_ep_spl_mmu_prepare(void);
+void ka200_spl_mmu_prepare(void);
 #endif
 
-#if defined(CONFIG_HE200_EP_EARLY_UART_DEBUG)
-extern void he200_ep_prep_trace(char step);
+#if defined(CONFIG_SOC_LYNXI_KA200_EARLY_UART_DEBUG)
+extern void ka200_prep_trace(char step);
 #else
-static inline void he200_ep_prep_trace(char step) { ARG_UNUSED(step); }
+static inline void ka200_prep_trace(char step) { ARG_UNUSED(step); }
 #endif
 
 /**
@@ -49,25 +49,25 @@ FUNC_NORETURN void z_prep_c(void)
 
 	/* Initialize tpidrro_el0 with our struct _cpu instance address */
 	write_tpidrro_el0((uintptr_t)&_kernel.cpus[0]);
-	he200_ep_prep_trace('t');
+	ka200_prep_trace('t');
 
 	arch_bss_zero();
-	he200_ep_prep_trace('b');
+	ka200_prep_trace('b');
 	arch_data_copy();
-	he200_ep_prep_trace('d');
+	ka200_prep_trace('d');
 #ifdef CONFIG_ARM64_SAFE_EXCEPTION_STACK
 	/* After bss clean, _kernel.cpus is in bss section */
 	z_arm64_safe_exception_stack_init();
 #endif
 #if defined(CONFIG_SOC_LYNXI_KA200)
-	he200_ep_spl_mmu_prepare();
+	ka200_spl_mmu_prepare();
 #endif
-	he200_ep_prep_trace('D');
+	ka200_prep_trace('D');
 	z_arm64_mm_init(true);
-	he200_ep_prep_trace('m');
+	ka200_prep_trace('m');
 
 	z_arm64_interrupt_init();
-	he200_ep_prep_trace('i');
+	ka200_prep_trace('i');
 
 	z_cstart();
 	CODE_UNREACHABLE;

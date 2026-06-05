@@ -13,7 +13,13 @@ config SOC_LYNXI_KA200
 	select TIMER_ARMv8_CNTVCT
 	select SYS_CLOCK_EXISTS
 	help
-	  Lynxi KA200 ARM64 SoC (8 cores)
+	  Lynxi KA200 ARM64 SoC (8 cores).
+
+	  All silicon SKUs on this SoC (e.g. KA200_EP, KA200_RC) share the same
+	  peripherals and drivers here (UART, eMMC, SMP, MMU regions, sysctl).
+	  SKU differences are limited to PCIe (EP vs RC); use board-level
+	  Kconfig/DTS only for PCIe and boot packaging, not duplicate SoC drivers.
+	  See boards/lynxi/PORTING.md section 1.1.
 
 config SOC_LYNXI_KA200_SPIN_TABLE
 	bool "Use spin-table to boot secondary CPUs (no PSCI)"
@@ -22,3 +28,19 @@ config SOC_LYNXI_KA200_SPIN_TABLE
 	help
 	  KA200 / HE200 firmware does not implement PSCI CPU_ON. Match
 	  RT-Thread cpu_release_paddr[] at 0x401ff00..0x401ff30.
+
+config SOC_LYNXI_KA200_EARLY_UART_DEBUG
+	bool "Early UART boot stage markers on UART0 (SPL direct boot)"
+	depends on SOC_LYNXI_KA200
+	default n
+	help
+	  SPL loads zephyr.bin as u-boot.bin: UART0 @ 115200 (50MHz).
+	  'S' at __start; 'G'/'g' EL2 GIC SRE; 'L' EL1 plat; 't'..'i' prep_c/mm.
+	  Also enables CPR UART clocks and defers SCTLR.C until MMU init.
+
+config SOC_LYNXI_KA200_SHELL_SMP
+	bool "Shell command ka200_smp (SMP status)"
+	depends on SOC_LYNXI_KA200 && SHELL
+	default y
+	help
+	  Register ka200_smp for spin-table / online CPU check on UART.

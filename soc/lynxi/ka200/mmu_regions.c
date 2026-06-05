@@ -37,10 +37,16 @@ static const struct arm_mmu_region mmu_regions[] = {
 			      0x10000UL,
 			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
 
-	/* APB peripherals (GPIO / I2C / SPI / DMA / GMAC / eMMC) */
+	/* APB peripherals (GPIO / I2C / SPI / DMA / GMAC) */
 	MMU_REGION_FLAT_ENTRY("SOC_APB",
 			      0x10002000UL,
 			      0x0003e000UL,
+			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
+
+	/* eMMC DWC MSHC @ 0x10040000 */
+	MMU_REGION_FLAT_ENTRY("EMMC",
+			      0x10040000UL,
+			      0x00040000UL,
 			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
 };
 

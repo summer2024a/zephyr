@@ -7,7 +7,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
 
-static int cmd_he200_smp(const struct shell *sh, size_t argc, char **argv)
+static int cmd_ka200_smp(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
@@ -26,9 +26,10 @@ static int cmd_he200_smp(const struct shell *sh, size_t argc, char **argv)
 	}
 
 	shell_print(sh, "Boot printk 'Secondary CPU core ... is up' needs CONFIG_LOG_PRINTK=n");
-	shell_print(sh, "IRQ 01-07 100%% in 'kernel thread stacks' is often normal on secondary ISR stacks");
 
 	return 0;
 }
 
-SHELL_CMD_REGISTER(he200_smp, NULL, "HE200 SMP / spin-table status", cmd_he200_smp);
+SHELL_CMD_REGISTER(ka200_smp, NULL, "KA200 SMP / spin-table status", cmd_ka200_smp);
+/* Alias for existing scripts / docs */
+SHELL_CMD_REGISTER(he200_smp, NULL, "Alias of ka200_smp", cmd_ka200_smp);

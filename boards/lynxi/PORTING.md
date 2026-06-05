@@ -18,6 +18,34 @@
 - 仓库中当前仅有 **`he200` / `he200_ep`**，无单独 `he200_rc` 目录；若 RC 指另一产品形态，可复用本 SoC 与 `he200_common.dtsi`，按板级 defconfig/linker 拆分。
 - SoC 系列：`SOC_LYNXI_KA200`（`zephyr/soc/lynxi/ka200/`）。
 
+### 1.1 命名分层：KA200 vs KA200_EP（移植必读）
+
+产品线约定（与 RT/Linux 一致）：
+
+| 层级 | 名称 | 含义 | Zephyr 落点 |
+|------|------|------|-------------|
+| **SoC** | **KA200** | 芯片共性：8 核、GICv3、CPR、APB 外设、SMP spin-table、eMMC/GMAC/I2C 等 | `soc/lynxi/ka200/`、`SOC_LYNXI_KA200`、`boards/lynxi/common/he200_*.dtsi` |
+| **硅片/产品 SKU** | **KA200_EP** vs **KA200_RC**（等） | **仅 PCIe 相关不同**（EP 设备、DBI/MSI-X、rpmsg-net、CPR `0x84` 门控等）；其余 IP **与 KA200 相同** | 未来：`CONFIG_*_KA200_EP`、PCIe DTS 节点、板级 `defconfig` 开关；**不要**为 EP 再写一套 eMMC/UART/SMP |
+| **Zephyr 板目标** | **`he200` / `he200_ep`** | 镜像/启动形态（linker 入口、SPL 直连、早期 UART 调试），**不是**第二颗 SoC | `boards/lynxi/he200*`；`he200_ep` 当前 = SPL @ `0x800100000` 已验板 |
+
+**配置与代码放置规则：**
+
+1. **可复用驱动**（eMMC `lynxi,dwcmshc-sdhci`、sysctl、MMU 设备区、spin-table、`uart_ns16550` KA200 quirk）→ 放在 **`soc/lynxi/ka200/`** 或 **`drivers/` + 公共 `he200_peripherals.dtsi`**，Kconfig 挂在 `SOC_LYNXI_KA200` / `DT_HAS_*`，**禁止**用 `BOARD_HE200_EP` 包裹整段外设逻辑。
+2. **仅 EP 差异** → PCIe 驱动、rpmsg、EP 专用时钟门（`drv_sysctl_lite.c` 中 `0x84` 的 pcie_* bit）、EP DTS `compatible`；命名建议 **`KA200_EP` / `CONFIG_LYNXI_KA200_PCIE_EP`**，与板名 `he200_ep` 解耦（板名可继续表示“该 SKU 的默认烧录方式”）。
+3. **板级独有、与 SoC IP 无关** → SPL linker、`he200_ep_spl_mmu_prepare` 调用点、early UART 阶段字符、`he200_ep_defconfig` 默认 SMP/Shell；保留 **`HE200_EP_*` / `BOARD_HE200_EP`** 前缀。
+4. **新增板型**（如 `he200_rc`）→ 只新增 **板目录 + defconfig + 可选 overlay**；**复用** `he200_common.dtsi`，仅 overlay 打开/关闭 PCIe 节点与 EP 驱动，**不要**复制 `he200_peripherals.dtsi` 或 `mmu_regions.c`。
+
+**反例（避免）：**
+
+- 在 `he200_ep/` 下再实现一份 eMMC/GPIO 驱动 — 应已在 `soc/lynxi/ka200` 或公共驱动中完成。
+- 用 `CONFIG_BOARD_HE200_EP` 控制 `CONFIG_SDHC_LYNXI_DWCMSHC` — 应 `depends on SOC_LYNXI_KA200` 或 DT。
+- 把 `ka200_ep` 当成与 `ka200` 不同的 SoC series — SoC 仍是一个 `lynxi,ka200`，EP 是 SKU 选项。
+
+**现状与后续整理：**
+
+- SoC 启动代码已迁至 `soc/lynxi/ka200/`（`ka200_spl.c`、`ka200_plat.c`、`ka200_early_uart.c`、`ka200_boot_debug.S`、`ka200_smp_shell.c`）；Kconfig 为 `CONFIG_SOC_LYNXI_KA200_EARLY_UART_DEBUG`；`he200_ep/` 仅保留 `linker.ld` 与 defconfig。
+- PCIe EP 驱动在 Zephyr 中 **尚未移植**；移植时单独目录/Kconfig，不牵动已完成的 SMP/eMMC 路径。
+
 ---
 
 ## 2. Git 变更总览（建议提交前核对）
@@ -41,8 +69,8 @@ soc/lynxi/
 | 文件 | 变更要点 |
 |------|----------|
 | `arch/arm64/core/Kconfig` | `NUM_IRQS` 在 `SOC_LYNXI_KA200` 时默认 220 |
-| `arch/arm64/core/reset.S` | `CONFIG_HE200_EP_EARLY_UART_DEBUG` 时在 `__start` 调用 `he200_ep_reset_hook` |
-| `arch/arm64/core/prep_c.c` | KA200：`he200_ep_spl_mmu_prepare()`；可选 prep/mm 跟踪字符 |
+| `arch/arm64/core/reset.S` | `CONFIG_SOC_LYNXI_KA200_EARLY_UART_DEBUG` 时在 `__start` 调用 `ka200_reset_hook` |
+| `arch/arm64/core/prep_c.c` | KA200：`ka200_spl_mmu_prepare()`；可选 prep/mm 跟踪字符 |
 | `arch/arm64/core/mmu.c` | 可选 `M`/`T`/`E` mm_init 跟踪字符 |
 | `dts/bindings/vendor-prefixes.txt` | 增加 `lynxi` |
 | `soc/CMakeLists.txt` | 加入 `lynxi` SoC 子目录 |
@@ -311,21 +339,30 @@ uart:~$
 |------|------|-----|------------------|-----------------|
 | GPIO | `0x1000e000` | 23 | `snps,dw-apb-gpio` | `gpio_dw` |
 | GMAC | `0x10020000` | 78 | `snps,dwmac-*` | `eth_dwmac` / 板级 hook |
-| eMMC | `0x10040000` | 80 | `lynxi,dwcmshc-sdhci` | 需 Lynxi SDHCI 补丁或适配 `sdhci` |
+| eMMC | `0x10040000` | 80 | `lynxi,dwcmshc-sdhci` | `CONFIG_SDHC_LYNXI_DWCMSHC`（对齐 RT `drv_sdhci.c`，轮询收发） |
 | I2C0~3 | `0x10002000`… | 28~31 | `snps,designware-i2c` | `i2c_dw` |
 | SPI0 | `0x1000a000` | 32 | `snps,dw-apb-ssi` | `spi_dw` |
 | DMA | `0x1001a000` | 83 | `snps,axi-dma-1.01a` | `dma_dw_axi` |
 
-MMU：`soc/lynxi/ka200/mmu_regions.c` 已增加 **SPIN_TABLE** + **SOC_APB**（`0x10002000`，256KB），避免单段 320MB 映射。
+MMU：`soc/lynxi/ka200/mmu_regions.c` 已增加 **SPIN_TABLE** + **SOC_APB**（`0x10002000`，256KB）+ **EMMC**（`0x10040000`，256KB）。
+
+**统一构建目录**（SMP、Shell、eMMC 及后续外设均编入同一镜像）：
+
+```bash
+west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
+# 产物：build_he200_ep_final/zephyr/zephyr.bin
+```
+
+`he200_ep_defconfig` 已启用 `CONFIG_SDHC_LYNXI_DWCMSHC`；`he200_peripherals.dtsi` 中 `emmc0` 为 `status = "okay"`。`app_shell_fs` 负责启动探测与 FatFS 挂载。磁盘 `SD2`，挂载点 `/SD2:`。FAT 自动挂载由 `CONFIG_APP_HE200_EMMC_AUTO_MOUNT` 控制（默认关闭，init 与挂载分步验收）。
 
 ### 10.3 驱动实现顺序（建议）
 
-1. **CPR 时钟门控** — 扩展 `he200_ep_spl.c` / 公共 `lynxi_sysctl_lite`（对齐 RT `drv_sysctl_lite.c`：eMMC `0x88`、GMAC `0x8c`、I2C `0x94/0x98`、DMA `0x6c`）
+1. **CPR 时钟门控** — `soc/lynxi/ka200/sysctl_lite.c`（对齐 RT `drv_sysctl_lite.c`：eMMC `0x88`、GMAC `0x8c`、I2C `0x94/0x98`、DMA `0x6c`）
 2. **CPR IP 复位** — RT `drv_reset.c`（ETH/I2C/RTC/DMA 脉冲）
 3. **GPIO** → pinmux / 中断（Linux `lynxi_pinfun` + lynxi-drivers）
 4. **I2C** → 传感器 / PMIC
 5. **DMA** — mem2mem（RT `drv_dw_axi_dma.c`；lynxi-drivers `lynd_dma.c`）
-6. **eMMC** — HS200、`SDHCI_CLOCK_PLL_EN`（RT README / `lx_mmc_clock_freq_change`）
+6. **eMMC** — [已验证] `sdhc_lynxi_dwcmshc.c` + `sysctl_lite.c`（CPR `0x88` gate）；RT 式 MMC init + PIO 数据路径；实板 `disk_access_init` 通过（§10.5）
 7. **GMAC** — Synopsys + CPR `0x8c` RGMII（RT `drivers/net/gmac/`）
 8. **SPI / SFC** — Linux 含 `lynxi,spi-sfc` 与 AHB boot SPI，后期单独板级
 
@@ -333,12 +370,51 @@ MMU：`soc/lynxi/ka200/mmu_regions.c` 已增加 **SPIN_TABLE** + **SOC_APB**（`
 
 - [ ] `he200` 板启用 Shell 并做 SPL 启动验证（当前 defconfig 关闭 UART/Shell）
 - [x] spin-table `pm_cpu_on` + `he200_ep_defconfig` 默认 SMP
-- [x] `he200_peripherals.dtsi` + MMU SOC_APB / SPIN_TABLE
+- [x] `he200_peripherals.dtsi` + MMU SOC_APB / SPIN_TABLE / EMMC
 - [x] SMP 实板 8 核启动（spin-table + 启动日志 + `he200_smp` / `kernel thread stacks`）
 - [ ] SMP IPI 调度压测（对照 RT README §5 IPI，跨 cluster 异常时再查）
-- [ ] eMMC / GMAC / GPIO / I2C / SPI / DMA 驱动与 `status = "okay"`
-- [x] `README.md` He200 章节（编译、SMP 验收）
+- [x] eMMC 编入 `build_he200_ep_final` + `app_shell_fs`（实板 `disk_access_init` 已验）
+- [ ] eMMC FAT 自动挂载（`CONFIG_APP_HE200_EMMC_AUTO_MOUNT=y`）与 `fs ls /SD2:` 读写压测
+- [ ] GMAC / GPIO / I2C / SPI / DMA 驱动与 `status = "okay"`
+- [x] `README.md` He200 章节（编译、SMP、eMMC 验收）
 - [ ] 若新增 `he200_rc` 板：复用 `he200_common.dtsi` + 独立 `defconfig`/linker 即可
+
+### 10.5 eMMC 实板验证（2026-06）
+
+对照 RT-Thread `bsp/lynxi/he200/drivers/drv_sdhci.c` 与 Linux `lynxi,dwcmshc-sdhci`，在 `he200_ep` + `app_shell_fs` 上完成 eMMC 初始化与几何信息读取。
+
+#### 验收日志（关键片段）
+
+```text
+he200 eMMC: init disk SD2
+disk_access_init returned 0
+disk_access_init OK
+geometry: sectors=61071360 size=512 (~29820 MB)
+FS mount skipped (CONFIG_APP_HE200_EMMC_AUTO_MOUNT=n)
+```
+
+完整 init 序列含：CMD0/CMD1 probe、CID（实板 `4a544434` = "JTTD"）、CSD、SELECT、8-bit SWITCH、EXT_CSD 512B、HS timing SWITCH。
+
+#### 主要修复点（DWC MSHC + Zephyr SD 子系统）
+
+| 问题 | 现象 | 修复 |
+|------|------|------|
+| 虚假 Command Complete | CMD2 读到 CMD1 OCR 残留 `ff808000`，`disk_access_init -134` | `CARD_IS_EMMC` 在 phy_init 早期设置；R3 用 raw RESP；RT 式 `CMD0→CMD1(probe)→CMD0→CMD1(ocr\|HCS)→CMD2`；stale RESP 检查**仅 CMD2** |
+| R1b 后 CMD13 失败 | SWITCH 后 `sdmmc_wait_ready` 读到旧 RESP | stale 检查不用于 CMD13；R1b 后 `lynxi_wait_dat0_ready()` + `lynxi_card_busy()` |
+| EXT_CSD 读挂死 | CMD8 数据阶段无 `DATA_AVAIL` | `lynxi_cmd_data_is_read()` 覆盖非写块命令；数据阶段关 IRQ、按 `PRESENT_STATE` PIO 轮询（对齐 RT） |
+
+#### 相关源文件
+
+| 路径 | 作用 |
+|------|------|
+| `drivers/sdhc/sdhc_lynxi_dwcmshc.c` | DWC MSHC 主机：hw_init、request、PIO 收发、card_busy |
+| `drivers/sdhc/sdhc_lynxi_dwcmshc_regs.h` | 寄存器与位域 |
+| `dts/bindings/sdhc/lynxi,dwcmshc-sdhci.yaml` | DTS binding |
+| `soc/lynxi/ka200/sysctl_lite.c` | eMMC CPR `0x88` 时钟门控 |
+| `soc/lynxi/ka200/mmu_regions.c` | eMMC MMU `0x10040000` |
+| `subsys/sd/mmc.c` | RT 式 MMC probe/go_idle/init |
+| `subsys/sd/sd.c` | eMMC 跳过 SD CMD8；`sd_idle` MMC 延时 |
+| `boards/lynxi/common/he200_peripherals.dtsi` | `lynxi,emmc`、`lynxi,io-1v8` |
 
 ---
 
@@ -346,12 +422,15 @@ MMU：`soc/lynxi/ka200/mmu_regions.c` 已增加 **SPIN_TABLE** + **SOC_APB**（`
 
 | 路径 | 作用 |
 |------|------|
-| `boards/lynxi/he200_ep/he200_ep_spl.c` | SPL 时钟、EL1/MMU 准备、plat_init |
-| `boards/lynxi/he200_ep/he200_ep_init.c` | EL2 GIC SRE |
+| `soc/lynxi/ka200/ka200_spl.c` | SPL 时钟、EL1/MMU 准备、plat_init |
+| `soc/lynxi/ka200/ka200_plat.c` | EL2 GIC SRE |
 | `boards/lynxi/he200_ep/linker.ld` | header 后放置 reset 段 |
-| `soc/lynxi/ka200/mmu_regions.c` | GIC / SPIN_TABLE / UART / CPR / SOC_APB MMU |
+| `soc/lynxi/ka200/mmu_regions.c` | GIC / SPIN_TABLE / UART / CPR / SOC_APB / EMMC MMU |
+| `soc/lynxi/ka200/sysctl_lite.c` | CPR 时钟门控（eMMC `0x88` 等） |
 | `soc/lynxi/ka200/pm_cpu_ops_spin_table.c` | 无 PSCI 时 `pm_cpu_on()`，RT release 地址表 |
-| `boards/lynxi/he200_ep/he200_ep_smp_shell.c` | Shell 命令 `he200_smp` |
-| `arch/arm64/core/prep_c.c` | `he200_ep_spl_mmu_prepare()` 调用点 |
+| `soc/lynxi/ka200/ka200_smp_shell.c` | Shell `ka200_smp`（别名 `he200_smp`） |
+| `drivers/sdhc/sdhc_lynxi_dwcmshc.c` | Lynxi DWC MSHC SDHCI 主机驱动 |
+| `subsys/sd/mmc.c` / `subsys/sd/sd.c` | MMC/eMMC 初始化协议（对齐 RT） |
+| `arch/arm64/core/prep_c.c` | `ka200_spl_mmu_prepare()` 调用点 |
 
-文档版本：SPL + Shell + **8 核 SMP 实板验证**（Zephyr `v4.3.0` / `zephyr_ka200` 分支）。
+文档版本：SPL + Shell + **8 核 SMP** + **eMMC init 实板验证**（Zephyr `v4.3.0` / `zephyr_ka200` 分支）。

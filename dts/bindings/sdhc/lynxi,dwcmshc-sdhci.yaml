@@ -1,0 +1,23 @@
+# Copyright (c) 2026 Lynxi Technologies Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Lynxi DWC MSHC SDHCI (HE200 eMMC/SD)
+
+compatible: "lynxi,dwcmshc-sdhci"
+
+include: sdhc.yaml
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: false
+
+  lynxi,emmc:
+    type: boolean
+    description: Fixed eMMC (non-removable), sets CARD_IS_EMMC
+
+  lynxi,io-1v8:
+    type: boolean
+    description: Use 1.8V PHY pad configuration (RT BSP_SDIO0_1V8)

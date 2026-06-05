@@ -17,11 +17,14 @@ config SYS_CLOCK_TICKS_PER_SEC
 config NUM_IRQS
 	default 256
 
-config HE200_EP_EARLY_UART_DEBUG
+config SOC_LYNXI_KA200_EARLY_UART_DEBUG
 	default n
 
+config SOC_LYNXI_KA200_SHELL_SMP
+	default y
+
 config ARM64_BOOT_DISABLE_DCACHE
-	default y if HE200_EP_EARLY_UART_DEBUG
+	default y if SOC_LYNXI_KA200_EARLY_UART_DEBUG
 
 config SOC_PREP_HOOK
 	default y
