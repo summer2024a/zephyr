@@ -84,6 +84,8 @@ int dwmac_probe(const struct device *dev);
 int dwmac_bus_init(struct dwmac_priv *p);
 int dwmac_platform_init(struct dwmac_priv *p);
 void dwmac_isr(const struct device *ddev);
+void dwmac_platform_iface_init(struct net_if *iface);
+void dwmac_platform_irq_enable(const struct device *dev);
 extern const struct ethernet_api dwmac_api;
 
 /*

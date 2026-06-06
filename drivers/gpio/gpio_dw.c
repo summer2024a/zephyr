@@ -22,6 +22,10 @@
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/irq.h>
 
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+#include <zephyr/sdhc/lynxi_sysctl.h>
+#endif
+
 #ifdef CONFIG_IOAPIC
 #include <zephyr/drivers/interrupt_controller/ioapic.h>
 #endif
@@ -326,7 +330,23 @@ static inline int gpio_dw_config(const struct device *port,
 		return -ENOTSUP;
 	}
 
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+	/*
+	 * Lynxi Lite: 复用由 pinctrl 管，gpio-dwapb 无 CTL；PD23 须先切 GPIO。
+	 * 跳过 gpio_dw_set_hw_mode()，避免访问 0x1000e02c 挂死。
+	 */
+	{
+		unsigned int port_id = (unsigned int)dw_derive_port_from_base(config->base_addr);
+
+		if (port_id == 3U && pin == 23U) {
+			lynxi_gpio_pin_prepare_output(LYNXI_PINCTRL_PD23, port_id, pin);
+		} else {
+			lynxi_gpio_dw_block_init();
+		}
+	}
+#else
 	gpio_dw_set_hw_mode(port, pin, false);
+#endif
 
 	dw_pin_config(port, pin, flags);
 
@@ -447,6 +467,10 @@ static int gpio_dw_initialize(const struct device *port)
 {
 	const struct gpio_dw_config *config = port->config;
 	uint32_t base_addr;
+
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+	lynxi_gpio_dw_block_init();
+#endif
 
 	if (dw_interrupt_support(config)) {
 

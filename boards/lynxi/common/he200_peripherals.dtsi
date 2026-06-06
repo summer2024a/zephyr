@@ -7,34 +7,50 @@
 
 / {
 	soc {
-		gpio: gpio@1000e000 {
-			compatible = "snps,dw-apb-gpio";
-			reg = <0x00 0x1000e000 0x00 0x1000>;
-			#address-cells = <1>;
-			#size-cells = <0>;
+		/*
+		 * DesignWare GPIO block @ 0x1000e000 (Linux: snps,dw-apb-gpio).
+		 * Zephyr gpio_dw: one snps,designware-gpio per port; reg low bits
+		 * select port (offset 0/12/24/36 = A/B/C/D). EVB PHY reset: port D pin 23.
+		 */
+		gpio_portd: gpio@1000e024 {
+			compatible = "snps,designware-gpio";
+			reg = <0x00 0x1000e024 0x00 0x000c>;
+			ngpios = <32>;
+			gpio-controller;
+			#gpio-cells = <2>;
 			status = "disabled";
-
-			porta: gpio-controller@0 {
-				compatible = "snps,dw-apb-gpio-port";
-				gpio-controller;
-				#gpio-cells = <2>;
-				snps,nr-gpios = <32>;
-				reg = <0>;
-				interrupt-parent = <&gic>;
-				interrupt-controller;
-				#interrupt-cells = <2>;
-				interrupts = <GIC_SPI 23 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
-			};
 		};
 
+		/*
+		 * Linux ref: arch/arm64/boot/dts/lynxi/lynchip-lite-base.dtsi &eth
+		 * EVB: lynchip-lite-evb.dts — gmac-ctrl-reg 0x1250008c, phy-mode
+		 * "rgmii-id", mdio snps,dwmac-mdio, phy@1 reset-gpios portd 23.
+		 * Zephyr phy-connection-type 仅支持 "rgmii"（无 rgmii-id 枚举）。
+		 */
 		eth: ethernet@10020000 {
-			compatible = "snps,dwmac";
+			compatible = "snps,designware-ethernet";
 			reg = <0x00 0x10020000 0x00 0x10000>;
 			interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
-			clock-names = "stmmaceth", "phy_ref_clk", "aclk";
-			phy-mode = "rgmii";
-			max-speed = <1000>;
+			phy-connection-type = "rgmii";
+			local-mac-address = [02 00 00 00 00 01];
 			status = "disabled";
+
+			mdio: mdio {
+				compatible = "lynxi,dwmac-mdio";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				csr-clock-range = <4>;
+
+				/* PHY 型号待实板 MDIO 读 ID 后确认；先用通用 phy_mii */
+				phy0: ethernet-phy@1 {
+					compatible = "ethernet-phy";
+					reg = <1>;
+					/* lynchip-lite-evb.dts */
+					reset-gpios = <&gpio_portd 23 GPIO_ACTIVE_LOW>;
+					reset-assert-duration-us = <10000>;
+					reset-deassertion-timeout-ms = <50>;
+				};
+			};
 		};
 
 		mmc0: mmc@10040000 {

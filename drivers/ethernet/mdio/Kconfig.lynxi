@@ -1,0 +1,14 @@
+# Lynxi KA200 DWMAC4 MDIO configuration options
+#
+# Copyright (c) 2026 Lynxi Technologies Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+config MDIO_LYNXI_DWMAC
+	bool "Lynxi KA200 DWMAC4 MDIO"
+	depends on MDIO
+	depends on ETH_DWMAC_LYNXI_KA200
+	depends on DT_HAS_LYNXI_DWMAC_MDIO_ENABLED
+	default y
+	help
+	  MDIO master inside Synopsys DWMAC4 @ GMAC_MDIO_ADDR (0x200).
+	  MDIO node must be a child of the Ethernet MAC devicetree node.

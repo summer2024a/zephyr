@@ -59,8 +59,20 @@ static void ka200_uart_putc(char c)
 	*ka200_uart_thr = (uint32_t)c;
 }
 
+static bool ka200_boot_marker_is_cpu0(void)
+{
+	uint64_t mpidr;
+
+	__asm__ volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
+	return (mpidr & 0xffU) == 0U;
+}
+
 void ka200_boot_marker(char tag)
 {
+	if (!ka200_boot_marker_is_cpu0()) {
+		return;
+	}
+
 	ka200_uart_putc(tag);
 }
 

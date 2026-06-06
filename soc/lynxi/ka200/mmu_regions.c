@@ -37,10 +37,22 @@ static const struct arm_mmu_region mmu_regions[] = {
 			      0x10000UL,
 			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
 
-	/* APB peripherals (GPIO / I2C / SPI / DMA / GMAC) */
+	/* APB peripherals (GPIO / I2C / SPI / DMA) */
 	MMU_REGION_FLAT_ENTRY("SOC_APB",
 			      0x10002000UL,
 			      0x0003e000UL,
+			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
+
+	/* GMAC DWC QoS @ 0x10020000（与 eMMC 一样单独映射，避免 SOC_APB 区访问异常） */
+	MMU_REGION_FLAT_ENTRY("GMAC",
+			      0x10020000UL,
+			      0x00010000UL,
+			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
+
+	/* IO pinmux / pinctrl (lynxi,lite-pinctrl @ 0x12000000) */
+	MMU_REGION_FLAT_ENTRY("PINCTRL",
+			      0x12000000UL,
+			      0x00010000UL,
 			      MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_DEFAULT_SECURE_STATE),
 
 	/* eMMC DWC MSHC @ 0x10040000 */

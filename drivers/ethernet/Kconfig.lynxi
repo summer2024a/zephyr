@@ -1,0 +1,27 @@
+# Lynxi KA200 Ethernet (DesignWare MAC) configuration options
+#
+# Copyright (c) 2026 Lynxi Technologies Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+config ETH_DWMAC_LYNXI_KA200
+	bool "Synopsys DesignWare MAC on Lynxi KA200 (RGMII)"
+	depends on SOC_LYNXI_KA200
+	depends on DT_HAS_SNPS_DESIGNWARE_ETHERNET_ENABLED
+	select ETH_DWMAC
+	default y
+	help
+	  Platform glue for Lynxi KA200 / HE200 GMAC @ 0x10020000.
+	  Enables CPR clock gates (CPR 0x8c), RGMII gigabit MAC setup,
+	  and uncached DMA descriptor mapping. MDIO/PHY init is still
+	  required for link-up (see boards/lynxi/PORTING.md).
+
+if ETH_DWMAC_LYNXI_KA200
+
+config LYNXI_DWMAC_LOG_LEVEL
+	int "Lynxi DWMAC platform log level"
+	default 3
+	range 0 4
+	help
+	  0=none, 1=err, 2=wrn, 3=inf, 4=dbg
+
+endif

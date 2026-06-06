@@ -96,6 +96,16 @@ static inline uint32_t phys_lo32(void *addr)
 	return lo32((uintptr_t)addr);
 }
 
+__weak void dwmac_platform_iface_init(struct net_if *iface)
+{
+	ARG_UNUSED(iface);
+}
+
+__weak void dwmac_platform_irq_enable(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+}
+
 static enum ethernet_hw_caps dwmac_caps(const struct device *dev)
 {
 	struct dwmac_priv *p = dev->data;
@@ -420,7 +430,15 @@ static void dwmac_mac_irq(struct dwmac_priv *p)
 
 	status = REG_READ(MAC_IRQ_STATUS);
 	LOG_DBG("MAC_IRQ_STATUS = 0x%08x", status);
-	__ASSERT(false, "unimplemented");
+
+	/* RGMII 线状态变化：W1C 清除，勿开 RGSMIIIE（对齐 RT GmacRgmiiIntMask） */
+	if (status & MAC_IRQ_STATUS_RGSMIIIS) {
+		REG_WRITE(MAC_IRQ_STATUS, MAC_IRQ_STATUS_RGSMIIIS);
+	}
+
+	if (status & ~(MAC_IRQ_STATUS_RGSMIIIS)) {
+		LOG_WRN("unhandled MAC IRQ 0x%08x", status);
+	}
 }
 
 static void dwmac_mtl_irq(struct dwmac_priv *p)
@@ -512,10 +530,14 @@ static int dwmac_set_config(const struct device *dev,
 static void dwmac_iface_init(struct net_if *iface)
 {
 	struct dwmac_priv *p = net_if_get_device(iface)->data;
+	const struct device *dev = net_if_get_device(iface);
 	uint32_t reg_val;
 
 	__ASSERT(!p->iface, "interface already initialized?");
 	p->iface = iface;
+
+	/* GIC IRQ only when net iface comes up (probe/DMA rings already done) */
+	dwmac_platform_irq_enable(dev);
 
 	ethernet_init(iface);
 
@@ -540,6 +562,8 @@ static void dwmac_iface_init(struct net_if *iface)
 			CONFIG_ETH_DWMAC_RX_REFILL_THREAD_PRIORITY,
 			K_ESSENTIAL, K_NO_WAIT);
 	k_thread_name_set(&p->rx_refill_thread, "dwmac_rx_refill");
+
+	dwmac_platform_iface_init(iface);
 
 	/* start up TX/RX */
 	reg_val = REG_READ(DMA_CHn_TX_CTRL(0));
@@ -567,27 +591,53 @@ int dwmac_probe(const struct device *dev)
 	struct dwmac_priv *p = dev->data;
 	int ret;
 	uint32_t reg_val;
-	k_timepoint_t timeout;
+	bool dma_swr_done;
 
 	ret = dwmac_bus_init(p);
 	if (ret != 0) {
 		return ret;
 	}
 
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+	printk("he200 GMAC: read MAC_VERSION @0x%lx\n",
+	       (unsigned long)(p->base_addr + MAC_VERSION));
+#endif
 	reg_val = REG_READ(MAC_VERSION);
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+	printk("he200 GMAC: MAC_VERSION=0x%08x\n", reg_val);
+#endif
 	LOG_INF("HW version %u.%u0", (reg_val >> 4) & 0xf, reg_val & 0xf);
 	__ASSERT(FIELD_GET(MAC_VERSION_SNPSVER, reg_val) >= 0x40,
 		 "This driver expects DWC-ETHERNET version >= 4.00");
 
 	/* resets all of the MAC internal registers and logic */
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+	printk("he200 GMAC: DMA soft reset\n");
+#endif
 	REG_WRITE(DMA_MODE, DMA_MODE_SWR);
-	timeout = sys_timepoint_calc(K_MSEC(100));
-	while (REG_READ(DMA_MODE) & DMA_MODE_SWR) {
-		if (sys_timepoint_expired(timeout)) {
-			LOG_ERR("unable to reset hardware");
-			return -EIO;
+	/*
+	 * Linux dwmac4_dma_reset(): 最多 10×mdelay(10ms)，失败返回 -EBUSY。
+	 */
+	dma_swr_done = false;
+	for (int swr_retry = 0; swr_retry < 10; swr_retry++) {
+		k_msleep(10);
+		if ((REG_READ(DMA_MODE) & DMA_MODE_SWR) == 0U) {
+			dma_swr_done = true;
+			break;
 		}
 	}
+	if (!dma_swr_done) {
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+		printk("he200 GMAC: DMA SWR timeout (dwmac4_dma_reset)\n");
+		LOG_WRN("DMA SWR stuck, continue MAC init");
+#else
+		LOG_ERR("unable to reset hardware (DMA SWR stuck)");
+		return -EIO;
+#endif
+	}
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+	printk("he200 GMAC: DMA reset done DMA_MODE=0x%08x\n", REG_READ(DMA_MODE));
+#endif
 
 	/* get configured hardware features */
 	p->feature0 = REG_READ(MAC_HW_FEATURE0);
@@ -616,6 +666,10 @@ int dwmac_probe(const struct device *dev)
 	REG_WRITE(DMA_CHn_RXDESC_LIST_ADDR(0), RXDESC_PHYS_L(0));
 	REG_WRITE(DMA_CHn_TXDESC_RING_LENGTH(0), NB_TX_DESCS - 1);
 	REG_WRITE(DMA_CHn_RXDESC_RING_LENGTH(0), NB_RX_DESCS - 1);
+
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+	printk("he200 GMAC: probe done\n");
+#endif
 
 	return 0;
 }

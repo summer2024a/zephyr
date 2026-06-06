@@ -7,15 +7,13 @@
 
 #include <stdint.h>
 
-#ifdef CONFIG_SOC_LYNXI_KA200_EARLY_UART_DEBUG
 void ka200_boot_marker(char tag);
-#endif
 
 void z_arm64_el2_plat_init(void)
 {
 	uint64_t reg;
 
-#ifdef CONFIG_SOC_LYNXI_KA200_EARLY_UART_DEBUG
+#ifdef CONFIG_SOC_KA200_BOOT_TRACE
 	ka200_boot_marker('G');
 #endif
 
@@ -29,7 +27,7 @@ void z_arm64_el2_plat_init(void)
 	__asm__ volatile("msr S3_4_C12_C9_5, %0" : : "r"(reg));
 	__asm__ volatile("isb" : : : "memory");
 
-#ifdef CONFIG_SOC_LYNXI_KA200_EARLY_UART_DEBUG
+#ifdef CONFIG_SOC_KA200_BOOT_TRACE
 	ka200_boot_marker('g');
 #endif
 }

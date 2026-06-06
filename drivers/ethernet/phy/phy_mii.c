@@ -19,6 +19,10 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(phy_mii, CONFIG_PHY_LOG_LEVEL);
 
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+#include <zephyr/sdhc/lynxi_sysctl.h>
+#endif
+
 #include "phy_mii.h"
 
 #define ANY_RESET_GPIO   DT_ANY_INST_HAS_PROP_STATUS_OKAY(reset_gpios)
@@ -75,6 +79,48 @@ static inline int phy_mii_reg_write(const struct device *dev, uint16_t reg_addr,
 	return mdio_write(cfg->mdio, cfg->phy_addr, reg_addr, value);
 }
 
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+#define MII_PAGESEL           31
+#define RTL8211F_OUI          0x001cc000U
+#define RTL8211F_OUI_MASK     0xfffff000U
+#define RTL8211F_TX_DELAY     BIT(8)
+#define RTL8211F_RX_DELAY     0x8U
+
+static int phy_mii_write_page(const struct device *dev, uint16_t page)
+{
+	return phy_mii_reg_write(dev, MII_PAGESEL, page);
+}
+
+static int phy_mii_modify_paged(const struct device *dev, uint16_t page,
+				uint16_t reg, uint16_t mask, uint16_t set)
+{
+	uint16_t val;
+	int ret;
+
+	ret = phy_mii_write_page(dev, page);
+	if (ret < 0) {
+		return ret;
+	}
+	ret = phy_mii_reg_read(dev, reg, &val);
+	if (ret < 0) {
+		return ret;
+	}
+	val = (val & ~mask) | (set & mask);
+	return phy_mii_reg_write(dev, reg, val);
+}
+
+/* Linux realtek.c rtl8211f_config_init() for rgmii-id */
+static void phy_mii_rtl8211f_rgmii_id_config(const struct device *dev)
+{
+	(void)phy_mii_reg_write(dev, MII_PAGESEL, 0xd04);
+	(void)phy_mii_reg_write(dev, 0x10, 0x6c0b);
+	(void)phy_mii_modify_paged(dev, 0xd08, 0x11, RTL8211F_TX_DELAY, RTL8211F_TX_DELAY);
+	(void)phy_mii_modify_paged(dev, 0xd08, 0x15, RTL8211F_RX_DELAY, RTL8211F_RX_DELAY);
+	(void)phy_mii_write_page(dev, 0);
+	printk("he200 PHY: RTL8211F rgmii-id delay configured\n");
+}
+#endif /* CONFIG_ETH_DWMAC_LYNXI_KA200 */
+
 static int read_gigabit_supported_flag(const struct device *dev, bool *supported)
 {
 	uint16_t bmsr_reg;
@@ -104,19 +150,27 @@ static int reset(const struct device *dev)
 	uint32_t timeout = 12U;
 	uint16_t value;
 
-#if ANY_RESET_GPIO
+#if ANY_RESET_GPIO && !defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
 	const struct phy_mii_dev_config *const cfg = dev->config;
 	int ret;
 
 	if (gpio_is_ready_dt(&cfg->reset_gpio)) {
-		/* Issue a hard reset */
-		ret = gpio_pin_configure_dt(&cfg->reset_gpio, GPIO_OUTPUT_ACTIVE);
+		/*
+		 * Linux mdiobus_register_gpiod() + mdio_device_reset()：
+		 * GPIOD_OUT_LOW（ACTIVE_LOW 先释放）→ assert(1) → deassert(0)。
+		 */
+		ret = gpio_pin_configure_dt(&cfg->reset_gpio, GPIO_OUTPUT_INACTIVE);
 		if (ret < 0) {
 			LOG_ERR("Failed to configure RST pin (%d)", ret);
 			return ret;
 		}
 
-		/* assertion time */
+		ret = gpio_pin_set_dt(&cfg->reset_gpio, 1);
+		if (ret < 0) {
+			LOG_ERR("Failed to assert RST pin (%d)", ret);
+			return ret;
+		}
+
 		k_busy_wait(cfg->reset_assert_duration_us);
 
 		ret = gpio_pin_set_dt(&cfg->reset_gpio, 0);
@@ -129,7 +183,16 @@ static int reset(const struct device *dev)
 
 		return 0;
 	}
-#endif /* ANY_RESET_GPIO */
+#endif /* ANY_RESET_GPIO && !KA200 */
+
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+	/*
+	 * Lynxi Lite：phy_ref 使能后 Port-D SWPORTD_DDR bgpio RMW 会挂死
+	 *（实板已验证）；MDIO 可读 PHY ID 时走 BMCR 软复位，同 Linux 在
+	 * 无 reset-gpios 或 gpio 不可用时的 generic PHY 路径。
+	 */
+	printk("he200 PHY: BMCR soft reset (MDIO PHYID ok, skip gpio-dwapb)\n");
+#endif
 
 	/* Issue a soft reset */
 	if (phy_mii_reg_write(dev, MII_BMCR, MII_BMCR_RESET) < 0) {
@@ -473,6 +536,8 @@ static int phy_mii_init(const struct device *dev)
 	uint32_t phy_id;
 	int ret = 0;
 
+	printk("he200 PHY: init start addr=%u\n", cfg->phy_addr);
+
 	data->state.is_up = false;
 
 	if (cfg->no_reset == false) {
@@ -491,6 +556,11 @@ static int phy_mii_init(const struct device *dev)
 		}
 
 		LOG_INF("PHY (%d) ID %X", cfg->phy_addr, phy_id);
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+		if ((phy_id & RTL8211F_OUI_MASK) == RTL8211F_OUI) {
+			phy_mii_rtl8211f_rgmii_id_config(dev);
+		}
+#endif
 	}
 
 	ret = read_gigabit_supported_flag(dev, &data->gigabit_supported);

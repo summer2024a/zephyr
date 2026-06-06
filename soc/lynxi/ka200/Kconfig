@@ -29,14 +29,14 @@ config SOC_LYNXI_KA200_SPIN_TABLE
 	  KA200 / HE200 firmware does not implement PSCI CPU_ON. Match
 	  RT-Thread cpu_release_paddr[] at 0x401ff00..0x401ff30.
 
-config SOC_LYNXI_KA200_EARLY_UART_DEBUG
-	bool "Early UART boot stage markers on UART0 (SPL direct boot)"
+config SOC_KA200_BOOT_TRACE
+	bool "KA200 boot trace on UART0 (__start / EL2 / MMU extra markers)"
 	depends on SOC_LYNXI_KA200
 	default n
 	help
-	  SPL loads zephyr.bin as u-boot.bin: UART0 @ 115200 (50MHz).
-	  'S' at __start; 'G'/'g' EL2 GIC SRE; 'L' EL1 plat; 't'..'i' prep_c/mm.
-	  Also enables CPR UART clocks and defers SCTLR.C until MMU init.
+	  Optional SPL direct-boot trace beyond the always-on PLtbdDmi markers.
+	  Adds 'S' at __start, 'G'/'g' EL2 GIC SRE, 'M'/'T'/'E' during MMU init,
+	  and "Zephyr SPL" banner. UART0 @ 115200 (50MHz CPR clock).
 
 config SOC_LYNXI_KA200_SHELL_SMP
 	bool "Shell command ka200_smp (SMP status)"

@@ -44,6 +44,7 @@ config ETH_DWMAC_STM32H7X
 config ETH_DWMAC_MMU
 	bool "Synopsys DesignWare MAC driver for MMU based platforms"
 	depends on MMU
+	depends on !ETH_DWMAC_LYNXI_KA200
 	depends on DT_HAS_SNPS_DESIGNWARE_ETHERNET_ENABLED
 	select ETH_DWMAC
 	default y

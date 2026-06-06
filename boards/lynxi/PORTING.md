@@ -43,7 +43,7 @@
 
 **现状与后续整理：**
 
-- SoC 启动代码已迁至 `soc/lynxi/ka200/`（`ka200_spl.c`、`ka200_plat.c`、`ka200_early_uart.c`、`ka200_boot_debug.S`、`ka200_smp_shell.c`）；Kconfig 为 `CONFIG_SOC_LYNXI_KA200_EARLY_UART_DEBUG`；`he200_ep/` 仅保留 `linker.ld` 与 defconfig。
+- SoC 启动代码已迁至 `soc/lynxi/ka200/`（`ka200_spl.c`、`ka200_plat.c`、`ka200_early_uart.c`、`ka200_boot_debug.S`、`ka200_smp_shell.c`）；Kconfig 为 `CONFIG_SOC_KA200_BOOT_TRACE`；`he200_ep/` 仅保留 `linker.ld` 与 defconfig。
 - PCIe EP 驱动在 Zephyr 中 **尚未移植**；移植时单独目录/Kconfig，不牵动已完成的 SMP/eMMC 路径。
 
 ---
@@ -69,7 +69,7 @@ soc/lynxi/
 | 文件 | 变更要点 |
 |------|----------|
 | `arch/arm64/core/Kconfig` | `NUM_IRQS` 在 `SOC_LYNXI_KA200` 时默认 220 |
-| `arch/arm64/core/reset.S` | `CONFIG_SOC_LYNXI_KA200_EARLY_UART_DEBUG` 时在 `__start` 调用 `ka200_reset_hook` |
+| `arch/arm64/core/reset.S` | `CONFIG_SOC_KA200_BOOT_TRACE` 时在 `__start` 调用 `ka200_reset_hook` |
 | `arch/arm64/core/prep_c.c` | KA200：`ka200_spl_mmu_prepare()`；可选 prep/mm 跟踪字符 |
 | `arch/arm64/core/mmu.c` | 可选 `M`/`T`/`E` mm_init 跟踪字符 |
 | `dts/bindings/vendor-prefixes.txt` | 增加 `lynxi` |
@@ -89,7 +89,7 @@ soc/lynxi/
    - prep_c.c, reset.S, mmu.c 中 CONFIG_HE200_EP_* / SOC_LYNXI_KA200 相关片段
 ```
 
-生产镜像建议在 `he200_ep_defconfig` 中关闭 `CONFIG_HE200_EP_EARLY_UART_DEBUG`，并视需要去掉 arch 中的跟踪字符（或保留 `he200_ep_spl_mmu_prepare()` 调用，该逻辑不依赖 debug Kconfig）。
+生产镜像建议在 `he200_ep_defconfig` 中关闭 `CONFIG_SOC_KA200_BOOT_TRACE`，并视需要去掉 arch 中的跟踪字符（或保留 `he200_ep_spl_mmu_prepare()` 调用，该逻辑不依赖 debug Kconfig）。
 
 ---
 
@@ -153,7 +153,7 @@ west build -b he200 -d build_he200 app_shell_fs
 
 - `he200_ep_early_uart.c`：50MHz / 115200 初始化 UART0（对齐 RT `UART_REFERENCE_CLOCK`）
 - `he200_ep_spl.c`：`lynxi_sysctl_lite` 等价时钟门（`0x6c/9` fabric_pclk2，`0xb4/1` uart0_sclk）
-- `he200_ep_boot_debug.S`：在 `__start` 打印 `S`（需 `CONFIG_HE200_EP_EARLY_UART_DEBUG`）
+- `he200_ep_boot_debug.S`：在 `__start` 打印 `S`（需 `CONFIG_SOC_KA200_BOOT_TRACE`）
 
 ### 5.2 现象：早期标记 `S2GgL` 后停止
 
@@ -208,7 +208,7 @@ Starting shell example
 
 ---
 
-## 6. 早期调试字符表（`CONFIG_HE200_EP_EARLY_UART_DEBUG`）
+## 6. 早期调试字符表（`CONFIG_SOC_KA200_BOOT_TRACE`）
 
 | 字符 | 位置 |
 |------|------|
@@ -223,7 +223,7 @@ Starting shell example
 | `M`/`T`/`E` | mm_init 内 |
 | `m`/`i` | mm_init 返回、中断初始化后 |
 
-关闭调试：在 `menuconfig` 取消 **Early UART boot stage markers**，或 `CONFIG_HE200_EP_EARLY_UART_DEBUG=n`。
+关闭调试：在 `menuconfig` 取消 **Early UART boot stage markers**，或 `CONFIG_SOC_KA200_BOOT_TRACE=n`。
 
 ---
 
@@ -235,7 +235,7 @@ Starting shell example
 - [ ] SPL entry `0x800100000` 与 `CONFIG_SRAM_BASE_ADDRESS` 一致
 - [x] DTS `uart0` `clock-frequency = <50000000>`（与 RT 一致；错误时用 24MHz 会导致驱动重配波特率后 Shell 异常）
 - [x] `CONFIG_UART_NS16550_DW8250_DW_APB`（DesignWare APB 须用 USR 判断 TX/RX 就绪，否则 `uart:~$` 可能不打印）
-- [ ] 生产关闭 `CONFIG_HE200_EP_EARLY_UART_DEBUG`
+- [ ] 生产关闭 `CONFIG_SOC_KA200_BOOT_TRACE`
 
 ---
 
@@ -363,7 +363,7 @@ west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
 4. **I2C** → 传感器 / PMIC
 5. **DMA** — mem2mem（RT `drv_dw_axi_dma.c`；lynxi-drivers `lynd_dma.c`）
 6. **eMMC** — [已验证] `sdhc_lynxi_dwcmshc.c` + `sysctl_lite.c`（CPR `0x88` gate）；RT 式 MMC init + PIO 数据路径；实板 `disk_access_init` 通过（§10.5）
-7. **GMAC** — Synopsys + CPR `0x8c` RGMII（RT `drivers/net/gmac/`）
+7. **GMAC** — [init 已验] `eth_dwmac_lynxi_ka200.c` + MDIO + RTL8211F BMCR 复位；链路/ping 待验（§10.6）
 8. **SPI / SFC** — Linux 含 `lynxi,spi-sfc` 与 AHB boot SPI，后期单独板级
 
 ### 10.4 待办 checklist
@@ -375,7 +375,9 @@ west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
 - [ ] SMP IPI 调度压测（对照 RT README §5 IPI，跨 cluster 异常时再查）
 - [x] eMMC 编入 `build_he200_ep_final` + `app_shell_fs`（实板 `disk_access_init` 已验）
 - [ ] eMMC FAT 自动挂载（`CONFIG_APP_HE200_EMMC_AUTO_MOUNT=y`）与 `fs ls /SD2:` 读写压测
-- [ ] GMAC / GPIO / I2C / SPI / DMA 驱动与 `status = "okay"`
+- [x] GMAC init + MDIO + PHY ID（`he200_ep_gmac.conf` 实板 2026-06）
+- [ ] GMAC 链路 up / `net iface` / ping（代码 2026-06-06：rgmii-id + NET_SHELL/IP，待 49.81 实板复验）
+- [ ] GPIO / I2C / SPI / DMA 驱动与 `status = "okay"`
 - [x] `README.md` He200 章节（编译、SMP、eMMC 验收）
 - [ ] 若新增 `he200_rc` 板：复用 `he200_common.dtsi` + 独立 `defconfig`/linker 即可
 
@@ -403,18 +405,98 @@ FS mount skipped (CONFIG_APP_HE200_EMMC_AUTO_MOUNT=n)
 | R1b 后 CMD13 失败 | SWITCH 后 `sdmmc_wait_ready` 读到旧 RESP | stale 检查不用于 CMD13；R1b 后 `lynxi_wait_dat0_ready()` + `lynxi_card_busy()` |
 | EXT_CSD 读挂死 | CMD8 数据阶段无 `DATA_AVAIL` | `lynxi_cmd_data_is_read()` 覆盖非写块命令；数据阶段关 IRQ、按 `PRESENT_STATE` PIO 轮询（对齐 RT） |
 
+### 10.6 GMAC 移植进度（2026-06）
+
+**唯一参考：lynxi-linux**（`arch/arm64/boot/dts/lynxi/` + `drivers/net/ethernet/stmicro/stmmac/` + `drivers/gpio/gpio-dwapb.c` + `drivers/pinctrl/pinctrl-lynlite.c` + `drivers/clk/lynxi/clk-lynxi-lite.c`）。RT-Thread GMAC 不作对照。
+
+**实板验收（2026-06）**：`POST_KERNEL` 全流程通过；`PHY ID 001c:c916`（RTL8211F，对照 `lynxi-linux/drivers/net/phy/realtek.c`）；eMMC 与 GMAC 可并存启动。
+
+**代码更新（2026-06-06）**：
+
+- `phy_mii.c`：RTL8211F `rgmii-id` TX/RX delay（对齐 `realtek.c`）
+- `he200_ep_gmac.conf`：`CONFIG_NET_SHELL` + 静态 IP `192.168.1.2/24`
+- `eth_dwmac.c` / `eth_dwmac_lynxi_ka200.c`：RGMII 线中断 W1C + 屏蔽，防 IRQ 风暴
+
+链路 up / ping 仍待 `192.168.49.81` 实板复验（Host `enp25s0f1` → `192.168.1.1/24`）。
+
+构建：`west build -b he200_ep -d build_he200_ep_final app_shell_fs -- -DEXTRA_CONF_FILE=../zephyr/boards/lynxi/he200_ep/he200_ep_gmac.conf`
+
+**串口可见性**：`he200_ep` 关闭 `CONFIG_LOG_PRINTK`；驱动内 `LOG_INF` 不出 UART。验收读 `printk`：`he200 GMAC:` / `he200 PHY:`（`app_shell_fs/src/main.c` 亦有 `he200 GMAC: probe phy@1`）。
+
+#### 调试阻塞点（实板演进，按时间序）
+
+| # | 最后可见日志 / 位置 | 根因（对照 lynxi-linux） | 处理 |
+|---|---------------------|--------------------------|------|
+| 1 | `he200 PHY: pinctrl PD23 gpio`（`gpio_dw`） | Lynxi Lite **无** `SWPORTx_CTL`；访问 `0x1000e02c` 挂死。Linux `gpio-dwapb` 亦不用 CTL，复用由 `pinctrl-lynlite` bit10 控制 | KA200 下 `gpio_dw_config()` 对 PD23 跳过 `gpio_dw_set_hw_mode()`，改 `lynxi_pinctrl_pin_gpio_mode(118)` |
+| 2 | `bus init start` 后无输出（`lynxi_phy_reset` @ `bus_init`） | 误加 `lynxi_sysctl_gpio_reset_pulse()`（CPR `0x90` bit0）。Linux `lynchip-lite-base.dtsi` 的 `gpio@1000e000` **无** `resets`，`gpio-dwapb` 仅 `reset_control_deassert(optional NULL)` | 删除 GPIO CPR bit0 脉冲；`lynxi_sysctl_gpio_enable()` 只开 bit1/2（`clk-lynxi-lite.c` `LITE_PERIPH_GPIO_DB/INTR`） |
+| 3 | `gpio pulse portd:23`（直接 MMIO `*ddr=BIT(23)`） | **整口写** `SWPORTD_DDR` 把 PD10–22（RGMII0）方向清零；GMAC/RGMII 已开时总线挂死。Linux `bgpio` 对 DDR 做 **RMW** 只改目标 bit | 改为 `\|=` / `&=` RMW；仍不足（见 #4） |
+| 4 | `gpio pulse portd:23 rmw` / `gpio-dwapb reset portd:23` | `phy_ref`（CPR `0x8c` bit9）使能后，Port-D `SWPORTD_DDR` 读（`bgpio` RMW 必经）在 Zephyr 实板挂死。Linux 在完整 `gpiolib`+`pinctrl` 下 `mdiobus_register_gpiod()` 可工作；Zephyr 裸机路径等效访问仍挂 | **KA200 跳过** `reset-gpios` 的 `gpio-dwapb` 硬复位，改 **BMCR 软复位**（`phy_mii`）；MDIO 已能读 ID 时等价于 Linux 无 `reset-gpios` 的 generic PHY 路径 |
+| 5 | （若误写）CPR `0x88` bit0 | `LITE_EMMC_R`（eMMC IP 复位），与 eMMC 驱动冲突 | **禁止**在 GMAC 路径写 `0x88` bit0 |
+| 6 | `DMA SWR timeout` | `DMA_MODE` bit0 粘住（`0x1`）；Linux `dwmac4_dma_reset()` 10×10ms 后返回 `-EBUSY` 并中止 probe | 检测逻辑对齐 Linux；KA200 打 `LOG_WRN` **继续** init（MAC/MDIO 仍可用，属板级 quirk，非 Linux 行为） |
+| 7 | `POST_KERNEL start` 后无 `Booting Zephyr OS` | 卡在 eth(55)→mdio(56)→phy(57) 某一 init；用最后一条 `he200 GMAC:` / `he200 PHY:` 定位 | 见下「init 顺序」 |
+
+**init 顺序（Linux 等价）**：`PRE_KERNEL` GPIO 时钟 → `eth@55` `dwc_qos_probe` 时钟 → `mdio@56` MDIO 探测 → `phy@57` 复位+自协商 → `boot_banner`。GIC IRQ 在 `dwmac_iface_init` 才 `irq_enable`。
+
+**成功启动标志**：
+
+```text
+he200 GMAC: mdio PHYID1 probe addr=1 val=0x001c ret=0
+he200 PHY: BMCR soft reset (MDIO PHYID ok, skip gpio-dwapb)
+*** Booting Zephyr OS build ...
+he200 GMAC: PHY ID 001c:c916 (0x001cc916)
+```
+
+#### Linux 对照表（HE200 EVB）
+
+| 项 | lynxi-linux | Zephyr 实现 | 对齐 |
+|----|-------------|-------------|------|
+| DTS `&eth` | `ethernet@10020000`，`clock-names` aclk/phy_ref | `he200_peripherals.dtsi` `eth` | ✓ |
+| EVB PHY | `phy-mode=rgmii-id`，`reset-gpios=<&portd 23>` | `phy-connection-type=rgmii`（无 rgmii-id 枚举），DTS 仍保留 reset-gpios | △ 模式枚举差 |
+| 时钟 probe | `dwc_qos_probe()`：aclk → phy_ref_clk；**不写** `0x66f` | `lynxi_sysctl_gmac_probe_clocks()` gate bit1/9/2 + `LITE_GMAC_R` 脉冲 | ✓ |
+| CPR 速率 | `lynchip_lite_cpr_gmac_config()` **链路建立后**写 `0x66f/0x65f/0x64f` | `lynxi_dwmac_apply_link_speed()` 回调里 `lynxi_sysctl_gmac_cpr_speed_set()` | ✓ |
+| DMA 复位 | `dwmac4_dma_reset()` 10×10ms，失败 `-EBUSY` | 同循环；KA200 SWR 粘住时 **WARN 继续** | △ 失败策略 |
+| MDIO | `snps,dwmac-mdio`，GMAC4 @ `0x200`，`csr-clock-range` | `mdio_lynxi_dwmac.c` | ✓ 实板 ID `0x001c` |
+| PHY 硬复位 | `mdiobus_register_gpiod()` + `gpio-dwapb` + `pinctrl` PD23 | KA200：**跳过 gpio**，`MII_BMCR_RESET` 软复位 | ✗ 见 #4；功能上 SPL+MDIO 已通 |
+| PHY 驱动 | `realtek.c` RTL8211F 专用 | `phy_mii` generic | △ 待换 `phy_realtek` 可选 |
+| GPIO CPR | `0x90` bit1/2 only；无 GPIO block reset | `lynxi_sysctl_gpio_enable()` 同 | ✓ |
+| eMMC CPR | 勿动 `0x88` bit0 | 文档约束 + 代码未写 | ✓ |
+
+#### 已知遗留与 Linux 是否对齐
+
+| 遗留项 | Linux 行为 | Zephyr 现状 | 是否对齐 |
+|--------|------------|-------------|----------|
+| Port-D `reset-gpios` 硬复位 | EVB DTS 有；`mdiobus_register_gpiod()` 经 `gpio-dwapb` 执行 | 实板 DDR RMW 挂死，改 BMCR 软复位 | **否**（有意偏离，见 #4） |
+| DMA SWR 粘住 | probe 失败 `-EBUSY` | WARN 后继续，MDIO/MAC 可用 | **否**（板级 quirk 容错） |
+| `phy-mode` rgmii-id | EVB 使用 | Zephyr 仅 `rgmii` | **否**（框架限制） |
+| probe 写 `0x66f` | 不写，链路后写 | `gmac_probe_clocks()` 不写；链路回调写 | **是** |
+| `0x8c` 时钟门控顺序 | aclk → phy_ref → hclk | 同 | **是** |
+| CPR `0x90` GPIO reset 脉冲 | 无（DTS 无 resets） | 已删除 | **是** |
+| RTL8211F 识别 | `CONFIG_REALTEK_PHY` | generic `phy_mii`，ID 字符串 hint | **功能等价**，驱动未专用化 |
+
+#### 阶段状态
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| CPR / 时钟 | ✓ | `lynxi_sysctl_gmac_probe_clocks()`，probe 阶段 `0x8c≈0x207` |
+| MAC / DMA | △ | `MAC_VERSION=0x152`；SWR 超时但继续 |
+| MDIO | ✓ | `PHYID1=0x001c` @ addr 1 |
+| PHY init | ✓ | BMCR 软复位；`0x001cc916` RTL8211F |
+| 链路 / 发包 | 待验 | `net iface`、carrier、ping；验收：`ping 192.168.1.1` |
+| 专用 PHY 驱动 | 可选 | 可启用 `CONFIG_PHY_REALTEK` 对照 Linux |
+
 #### 相关源文件
 
 | 路径 | 作用 |
 |------|------|
-| `drivers/sdhc/sdhc_lynxi_dwcmshc.c` | DWC MSHC 主机：hw_init、request、PIO 收发、card_busy |
-| `drivers/sdhc/sdhc_lynxi_dwcmshc_regs.h` | 寄存器与位域 |
-| `dts/bindings/sdhc/lynxi,dwcmshc-sdhci.yaml` | DTS binding |
-| `soc/lynxi/ka200/sysctl_lite.c` | eMMC CPR `0x88` 时钟门控 |
-| `soc/lynxi/ka200/mmu_regions.c` | eMMC MMU `0x10040000` |
-| `subsys/sd/mmc.c` | RT 式 MMC probe/go_idle/init |
-| `subsys/sd/sd.c` | eMMC 跳过 SD CMD8；`sd_idle` MMC 延时 |
-| `boards/lynxi/common/he200_peripherals.dtsi` | `lynxi,emmc`、`lynxi,io-1v8` |
+| `drivers/ethernet/eth_dwmac_lynxi_ka200.c` | bus_init 时钟、链路 CPR 回调 |
+| `drivers/ethernet/eth_dwmac.c` | DMA SWR（`dwmac4_dma_reset` 时序） |
+| `drivers/ethernet/mdio/mdio_lynxi_dwmac.c` | DWMAC4 MDIO @ `0x200` |
+| `drivers/ethernet/phy/phy_mii.c` | KA200 BMCR 软复位（跳过 gpio-dwapb） |
+| `drivers/gpio/gpio_dw.c` | KA200 PD23：pinctrl + 无 CTL |
+| `soc/lynxi/ka200/sysctl_lite.c` | GMAC/GPIO CPR、pinctrl helper |
+| `soc/lynxi/ka200/mmu_regions.c` | GMAC `0x10020000`、SOC_APB（含 GPIO） |
+| `boards/lynxi/common/he200_peripherals.dtsi` | `&eth`、`ethernet-phy@1` |
+| `boards/lynxi/he200_ep/he200_ep_gmac.conf` | init 优先级 55/56/57 |
 
 ---
 
@@ -433,4 +515,4 @@ FS mount skipped (CONFIG_APP_HE200_EMMC_AUTO_MOUNT=n)
 | `subsys/sd/mmc.c` / `subsys/sd/sd.c` | MMC/eMMC 初始化协议（对齐 RT） |
 | `arch/arm64/core/prep_c.c` | `ka200_spl_mmu_prepare()` 调用点 |
 
-文档版本：SPL + Shell + **8 核 SMP** + **eMMC init 实板验证**（Zephyr `v4.3.0` / `zephyr_ka200` 分支）。
+文档版本：SPL + Shell + **8 核 SMP** + **eMMC init** + **GMAC/MDIO/PHY init 实板验证**（Zephyr `v4.3.0` / `zephyr_ka200` 分支）。

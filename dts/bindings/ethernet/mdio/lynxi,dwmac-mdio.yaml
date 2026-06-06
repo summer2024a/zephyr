@@ -1,0 +1,17 @@
+# Copyright (c) 2026 Lynxi Technologies Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Lynxi KA200 DWMAC4 embedded MDIO (Linux snps,dwmac-mdio compatible)
+
+compatible: "lynxi,dwmac-mdio"
+
+include: mdio-controller.yaml
+
+properties:
+  csr-clock-range:
+    type: int
+    default: 4
+    description: |
+      DWMAC4 MAC_MDIO_ADDRESS CR field (CSR clock range).
+      4 = 150-250 MHz (lynchip-lite fabric_fout4 typical).
+      See DWC QoS Ethernet databook Table 17-28.

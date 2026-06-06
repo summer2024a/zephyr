@@ -5,6 +5,7 @@
 
 #include <mem.h>
 #include <arm64/armv8-a.dtsi>
+#include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/interrupt-controller/arm-gic.h>
 #include "he200_peripherals.dtsi"
 

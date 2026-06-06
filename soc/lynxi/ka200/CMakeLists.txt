@@ -5,9 +5,9 @@ zephyr_library_sources_ifdef(CONFIG_SOC_LYNXI_KA200 sysctl_lite.c)
 zephyr_library_sources_ifdef(CONFIG_SOC_LYNXI_KA200
 	ka200_spl.c
 	ka200_plat.c
-)
-zephyr_library_sources_ifdef(CONFIG_SOC_LYNXI_KA200_EARLY_UART_DEBUG
 	ka200_early_uart.c
+)
+zephyr_library_sources_ifdef(CONFIG_SOC_KA200_BOOT_TRACE
 	ka200_boot_debug.S
 )
 zephyr_library_sources_ifdef(CONFIG_SOC_LYNXI_KA200_SHELL_SMP ka200_smp_shell.c)
