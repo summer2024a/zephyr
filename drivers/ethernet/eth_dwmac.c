@@ -14,6 +14,9 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include <sys/types.h>
 #include <zephyr/kernel.h>
+#ifdef CONFIG_MMU
+#include <zephyr/kernel/mm.h>
+#endif
 #include <zephyr/cache.h>
 #include <zephyr/net/ethernet.h>
 #include <zephyr/sys/barrier.h>
@@ -84,16 +87,26 @@ static inline uint32_t lo32(uintptr_t val)
 	return val;
 }
 
+static inline uintptr_t dwmac_buf_phys(void *addr)
+{
+#ifdef CONFIG_MMU
+	uintptr_t pa = k_mem_phys_addr(addr);
+
+	if (pa != 0U) {
+		return pa;
+	}
+#endif
+	return (uintptr_t)addr;
+}
+
 static inline uint32_t phys_hi32(void *addr)
 {
-	/* the default 1:1 mapping is assumed */
-	return hi32((uintptr_t)addr);
+	return hi32(dwmac_buf_phys(addr));
 }
 
 static inline uint32_t phys_lo32(void *addr)
 {
-	/* the default 1:1 mapping is assumed */
-	return lo32((uintptr_t)addr);
+	return lo32(dwmac_buf_phys(addr));
 }
 
 __weak void dwmac_platform_iface_init(struct net_if *iface)
@@ -261,6 +274,27 @@ static void dwmac_tx_release(struct dwmac_priv *p)
 	p->tx_desc_tail = d_idx;
 }
 
+static void dwmac_receive(struct dwmac_priv *p);
+
+void dwmac_service(struct dwmac_priv *p)
+{
+	uint32_t status = REG_READ(DMA_CHn_STATUS(0));
+
+	if (status == 0U) {
+		return;
+	}
+
+	REG_WRITE(DMA_CHn_STATUS(0), status);
+
+	if (status & DMA_CHn_STATUS_TI) {
+		dwmac_tx_release(p);
+	}
+
+	if (status & DMA_CHn_STATUS_RI) {
+		dwmac_receive(p);
+	}
+}
+
 static void dwmac_receive(struct dwmac_priv *p)
 {
 	struct dwmac_dma_desc *d;
@@ -316,12 +350,22 @@ static void dwmac_receive(struct dwmac_priv *p)
 		bytes_so_far = FIELD_GET(RDES3_PL, des3_val);
 		frag->len = bytes_so_far - p->rx_bytes;
 		p->rx_bytes = bytes_so_far;
+		sys_cache_data_invd_range(frag->data, frag->len);
 		net_pkt_frag_add(p->rx_pkt, frag);
 
 		/* last descriptor: */
 		if (des3_val & RDES3_LD) {
 			/* submit packet if no errors */
 			if (!(des3_val & RDES3_ES)) {
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+				static unsigned int rx_pkts;
+
+				if (rx_pkts < 4U) {
+					printk("he200 GMAC: rx pkt#%u len=%zd des3=%08x\n",
+					       rx_pkts, net_pkt_get_len(p->rx_pkt), des3_val);
+					rx_pkts++;
+				}
+#endif
 				LOG_DBG("pkt len/frags=%zd/%d",
 					net_pkt_get_len(p->rx_pkt),
 					net_pkt_get_nbfrags(p->rx_pkt));
@@ -389,6 +433,14 @@ static void dwmac_rx_refill_thread(void *arg1, void *unused1, void *unused2)
 		d->des1 = phys_hi32(frag->data);
 		d->des2 = 0;
 		d->des3 = RDES3_BUF1V | RDES3_IOC | RDES3_OWN;
+
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+		if (d_idx == 0 && p->rx_desc_head == 0) {
+			printk("he200 GMAC: rx[0] va=%p pa=%llx des0=%08x des1=%08x\n",
+			       frag->data, (unsigned long long)dwmac_buf_phys(frag->data),
+			       d->des0, d->des1);
+		}
+#endif
 
 		/* commit the above to memory */
 		barrier_dmem_fence_full();
@@ -562,6 +614,15 @@ static void dwmac_iface_init(struct net_if *iface)
 			CONFIG_ETH_DWMAC_RX_REFILL_THREAD_PRIORITY,
 			K_ESSENTIAL, K_NO_WAIT);
 	k_thread_name_set(&p->rx_refill_thread, "dwmac_rx_refill");
+
+#if defined(CONFIG_ETH_DWMAC_LYNXI_KA200)
+	/* 等 RX refill 提交 N-1 个描述符后再启 DMA（避免启动竞态） */
+	for (unsigned int wi = 0; wi < 200U && k_sem_count_get(&p->free_rx_descs) > 1U; wi++) {
+		k_msleep(1);
+	}
+	printk("he200 GMAC: rx ring ready sem=%u head=%u\n",
+	       k_sem_count_get(&p->free_rx_descs), p->rx_desc_head);
+#endif
 
 	dwmac_platform_iface_init(iface);
 

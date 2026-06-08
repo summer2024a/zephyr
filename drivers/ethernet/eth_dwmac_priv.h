@@ -81,6 +81,7 @@ struct dwmac_priv {
  */
 
 int dwmac_probe(const struct device *dev);
+void dwmac_service(struct dwmac_priv *p);
 int dwmac_bus_init(struct dwmac_priv *p);
 int dwmac_platform_init(struct dwmac_priv *p);
 void dwmac_isr(const struct device *ddev);

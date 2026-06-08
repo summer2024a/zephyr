@@ -417,7 +417,22 @@ FS mount skipped (CONFIG_APP_HE200_EMMC_AUTO_MOUNT=n)
 - `he200_ep_gmac.conf`：`CONFIG_NET_SHELL` + 静态 IP `192.168.1.2/24`
 - `eth_dwmac.c` / `eth_dwmac_lynxi_ka200.c`：RGMII 线中断 W1C + 屏蔽，防 IRQ 风暴
 
-链路 up / ping 仍待 `192.168.49.81` 实板复验（Host `enp25s0f1` → `192.168.1.1/24`）。
+链路 up / ping 仍待 `192.168.49.81` 实板复验（Host `enp25s0f1` → `192.168.1.1/24`；**ping 前**再跑 RT 同目录 `he200_test_env.sh` 并确认 `ip -4 addr show enp25s0f1` 无 `49.81`）。
+
+**2026-06-06 对照**：`build_he200_ep_gmac/zephyr.bin` 热插拔后 probe/PHY 正常，Host `ping 192.168.1.2` 仍无 ARP Reply。RT 侧根因已定位为 **MTL TSF/RSF + RXQ0 DCB**（`lynxi_dwmac4_mtl_init`）；Zephyr 已在 `eth_dwmac_lynxi_ka200.c` 合入同等 `lynxi_dwmac_mtl_init()`。验收脚本 Zephyr 分支 `BOOT_WAIT=50`（勿被顶层默认 22s 覆盖）。
+
+**2026-06-08 实板 ping PASS**（`FIRMWARE=zephyr he200_gmac_ping_test.sh` → 8/8，0% 丢包）：
+
+| 项 | 修复 |
+|----|------|
+| MTL | `lynxi_dwmac_mtl_init()`：RXQ0 DCB + TSF/TXQEN/RSF |
+| MMU PA | `eth_dwmac.c`：`k_mem_phys_addr()` 写 DMA des0/des1 |
+| RX cache | 收包路径 `sys_cache_data_invd_range()` |
+| RX 环启动 | iface init 等待 refill 提交 N-1 描述符后再启 DMA |
+| GIC IRQ | SPI 110（GMAC）改 **level-active-high**（Zephyr 默认 active-low） |
+| PHY carrier | BMSR 兜底 + `dwmac_service()` 10ms 轮询兜底 |
+| 缓冲 | `CONFIG_NET_BUF_DATA_SIZE=1518`，`DWMAC_NB_RX_DESCS=32` |
+| 验收脚本 | Zephyr 分支 `BOOT_WAIT=50` |
 
 构建：`west build -b he200_ep -d build_he200_ep_final app_shell_fs -- -DEXTRA_CONF_FILE=../zephyr/boards/lynxi/he200_ep/he200_ep_gmac.conf`
 
