@@ -129,7 +129,7 @@ SPL 日志中 `mkimage signature not found` / `ih_magic = 2a0003f4` 属用 **leg
 ```bash
 west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
 # 产物：build_he200_ep_final/zephyr/zephyr.bin
-# he200_ep_defconfig 已默认开启 CONFIG_SMP=8 核 + spin-table
+# he200_ep_defconfig 已默认开启 CONFIG_SMP=8 核 + spin-table + GMAC 网络栈
 ```
 
 `he200` 板：
@@ -363,7 +363,7 @@ west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
 4. **I2C** → 传感器 / PMIC
 5. **DMA** — mem2mem（RT `drv_dw_axi_dma.c`；lynxi-drivers `lynd_dma.c`）
 6. **eMMC** — [已验证] `sdhc_lynxi_dwcmshc.c` + `sysctl_lite.c`（CPR `0x88` gate）；RT 式 MMC init + PIO 数据路径；实板 `disk_access_init` 通过（§10.5）
-7. **GMAC** — [init 已验] `eth_dwmac_lynxi_ka200.c` + MDIO + RTL8211F BMCR 复位；链路/ping 待验（§10.6）
+7. **GMAC** — [ping/UDP 已验] `eth_dwmac_lynxi_ka200.c` + MDIO + RTL8211F；TCP ~0.07 Mbps（§10.6）
 8. **SPI / SFC** — Linux 含 `lynxi,spi-sfc` 与 AHB boot SPI，后期单独板级
 
 ### 10.4 待办 checklist
@@ -375,8 +375,11 @@ west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine
 - [ ] SMP IPI 调度压测（对照 RT README §5 IPI，跨 cluster 异常时再查）
 - [x] eMMC 编入 `build_he200_ep_final` + `app_shell_fs`（实板 `disk_access_init` 已验）
 - [ ] eMMC FAT 自动挂载（`CONFIG_APP_HE200_EMMC_AUTO_MOUNT=y`）与 `fs ls /SD2:` 读写压测
-- [x] GMAC init + MDIO + PHY ID（`he200_ep_gmac.conf` 实板 2026-06）
-- [ ] GMAC 链路 up / `net iface` / ping（代码 2026-06-06：rgmii-id + NET_SHELL/IP，待 49.81 实板复验）
+- [x] GMAC init + MDIO + PHY ID（`he200_ep_defconfig` 实板 2026-06）
+- [x] GMAC 链路 up / ping 8/8（2026-06-08，`he200_gmac_ping_test.sh`）
+- [x] GMAC UDP 带宽 ~52 Mbps（Host→EP，iperf v2 + zperf）
+- [ ] GMAC TCP 带宽优化（当前 ~0.07 Mbps，疑协议栈；`CONFIG_ZVFS_POLL_MAX=9` 已修 zperf server）
+- [ ] GMAC EP→Host TCP（`zperf tcp upload` 待查）
 - [ ] GPIO / I2C / SPI / DMA 驱动与 `status = "okay"`
 - [x] `README.md` He200 章节（编译、SMP、eMMC 验收）
 - [ ] 若新增 `he200_rc` 板：复用 `he200_common.dtsi` + 独立 `defconfig`/linker 即可
@@ -414,12 +417,12 @@ FS mount skipped (CONFIG_APP_HE200_EMMC_AUTO_MOUNT=n)
 **代码更新（2026-06-06）**：
 
 - `phy_mii.c`：RTL8211F `rgmii-id` TX/RX delay（对齐 `realtek.c`）
-- `he200_ep_gmac.conf`：`CONFIG_NET_SHELL` + 静态 IP `192.168.1.2/24`
+- `he200_ep_defconfig`：`CONFIG_NET_SHELL` + 静态 IP `192.168.1.2/24`（`he200_ep_gmac.conf` 仅作可选覆盖）
 - `eth_dwmac.c` / `eth_dwmac_lynxi_ka200.c`：RGMII 线中断 W1C + 屏蔽，防 IRQ 风暴
 
 链路 up / ping 仍待 `192.168.49.81` 实板复验（Host `enp25s0f1` → `192.168.1.1/24`；**ping 前**再跑 RT 同目录 `he200_test_env.sh` 并确认 `ip -4 addr show enp25s0f1` 无 `49.81`）。
 
-**2026-06-06 对照**：`build_he200_ep_gmac/zephyr.bin` 热插拔后 probe/PHY 正常，Host `ping 192.168.1.2` 仍无 ARP Reply。RT 侧根因已定位为 **MTL TSF/RSF + RXQ0 DCB**（`lynxi_dwmac4_mtl_init`）；Zephyr 已在 `eth_dwmac_lynxi_ka200.c` 合入同等 `lynxi_dwmac_mtl_init()`。验收脚本 Zephyr 分支 `BOOT_WAIT=50`（勿被顶层默认 22s 覆盖）。
+**2026-06-06 对照**：`build_he200_ep_final/zephyr.bin` 热插拔后 probe/PHY 正常，Host `ping 192.168.1.2` 仍无 ARP Reply。RT 侧根因已定位为 **MTL TSF/RSF + RXQ0 DCB**（`lynxi_dwmac4_mtl_init`）；Zephyr 已在 `eth_dwmac_lynxi_ka200.c` 合入同等 `lynxi_dwmac_mtl_init()`。验收脚本 Zephyr 分支 `BOOT_WAIT=50`（勿被顶层默认 22s 覆盖）。
 
 **2026-06-08 实板 ping PASS**（`FIRMWARE=zephyr he200_gmac_ping_test.sh` → 8/8，0% 丢包）：
 
@@ -434,7 +437,18 @@ FS mount skipped (CONFIG_APP_HE200_EMMC_AUTO_MOUNT=n)
 | 缓冲 | `CONFIG_NET_BUF_DATA_SIZE=1518`，`DWMAC_NB_RX_DESCS=32` |
 | 验收脚本 | Zephyr 分支 `BOOT_WAIT=50` |
 
-构建：`west build -b he200_ep -d build_he200_ep_final app_shell_fs -- -DEXTRA_CONF_FILE=../zephyr/boards/lynxi/he200_ep/he200_ep_gmac.conf`
+构建：`west build -b he200_ep -d build_he200_ep_final app_shell_fs --pristine`（GMAC 已编入 `he200_ep_defconfig`）
+
+**2026-06-08 实板带宽（49.81，`FIRMWARE=zephyr`）**：
+
+| 方向 / 协议 | 工具 | 结果 | 说明 |
+|-------------|------|------|------|
+| Host → EP | UDP iperf v2 + `zperf udp download` | **~52 Mbps** | 与 RT 同量级，GMAC DMA 正常 |
+| EP → Host | `zperf udp upload` + Host `iperf -s -u` | **~50 Mbps** | zperf 配置上限 50M |
+| Host → EP | TCP iperf v2 + `zperf tcp download` | **~0.07 Mbps** | 与 RT 同量级，疑 TCP 栈 |
+| EP → Host | `zperf tcp upload` | **N/A** | Host `iperf -s` 无连接统计，待查 |
+
+验收脚本（RT 仓库 `bsp/lynxi/he200/scripts/`）：`he200_gmac_ping_test.sh`、`he200_gmac_bw_test.sh`、`he200_gmac_tcp_test.sh`（iperf **v2、端口 5001**；Zephyr `BOOT_WAIT=50`）。
 
 **串口可见性**：`he200_ep` 关闭 `CONFIG_LOG_PRINTK`；驱动内 `LOG_INF` 不出 UART。验收读 `printk`：`he200 GMAC:` / `he200 PHY:`（`app_shell_fs/src/main.c` 亦有 `he200 GMAC: probe phy@1`）。
 
@@ -496,7 +510,9 @@ he200 GMAC: PHY ID 001c:c916 (0x001cc916)
 | MAC / DMA | △ | `MAC_VERSION=0x152`；SWR 超时但继续 |
 | MDIO | ✓ | `PHYID1=0x001c` @ addr 1 |
 | PHY init | ✓ | BMCR 软复位；`0x001cc916` RTL8211F |
-| 链路 / 发包 | 待验 | `net iface`、carrier、ping；验收：`ping 192.168.1.1` |
+| 链路 / ping | ✓ | 8/8 PASS；`net iface`、carrier on |
+| UDP 带宽 | ✓ | Host→EP ~52 Mbps；EP→Host ~50 Mbps |
+| TCP 带宽 | △ | Host→EP ~0.07 Mbps；EP→Host 待查 |
 | 专用 PHY 驱动 | 可选 | 可启用 `CONFIG_PHY_REALTEK` 对照 Linux |
 
 #### 相关源文件
@@ -511,7 +527,8 @@ he200 GMAC: PHY ID 001c:c916 (0x001cc916)
 | `soc/lynxi/ka200/sysctl_lite.c` | GMAC/GPIO CPR、pinctrl helper |
 | `soc/lynxi/ka200/mmu_regions.c` | GMAC `0x10020000`、SOC_APB（含 GPIO） |
 | `boards/lynxi/common/he200_peripherals.dtsi` | `&eth`、`ethernet-phy@1` |
-| `boards/lynxi/he200_ep/he200_ep_gmac.conf` | init 优先级 55/56/57 |
+| `boards/lynxi/he200_ep/he200_ep_defconfig` | 默认 SMP + eMMC + GMAC 网络栈 |
+| `boards/lynxi/he200_ep/he200_ep_gmac.conf` | 可选覆盖（默认已编入 defconfig） |
 
 ---
 
