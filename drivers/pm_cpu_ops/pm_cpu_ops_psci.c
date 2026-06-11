@@ -242,6 +242,11 @@ static int psci_init(const struct device *dev)
 #define DT_DRV_COMPAT arm_psci_0_2
 DT_INST_FOREACH_STATUS_OKAY(PSCI_0_2_INIT)
 
+#define PSCI_1_0_INIT(n) PSCI_DEFINE(n, PSCI_1_0)
+#undef DT_DRV_COMPAT
+#define DT_DRV_COMPAT arm_psci_1_0
+DT_INST_FOREACH_STATUS_OKAY(PSCI_1_0_INIT)
+
 #define PSCI_1_1_INIT(n) PSCI_DEFINE(n, PSCI_1_1)
 #undef DT_DRV_COMPAT
 #define DT_DRV_COMPAT arm_psci_1_1

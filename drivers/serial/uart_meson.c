@@ -11,21 +11,6 @@
  *   STATUS  +0x0C  — status register
  *   MISC    +0x10  — miscellaneous / baud rate divider
  *   REG5    +0x14  — new baud rate control
- *
- * CONTROL bits:
- *   bit 12: TX_EN
- *   bit 13: RX_EN
- *   bit 22: TX_RST (auto-clear)
- *   bit 23: RX_RST (auto-clear)
- *   bit 24: CLR_ERR (auto-clear)
- *
- * STATUS bits:
- *   bit 20: RX_EMPTY
- *   bit 21: TX_FULL
- *   bit 22: TX_EMPTY
- *   bit 25: XMIT_BUSY
- *
- * Reference: Linux drivers/serial/serial_meson.c, baremetal_uart.S
  */
 
 #define DT_DRV_COMPAT amlogic_meson_s4_uart
@@ -33,7 +18,7 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <zephyr/sys/__assert.h>
+#include <zephyr/sys/device_mmio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/irq.h>
 
@@ -61,31 +46,19 @@ LOG_MODULE_REGISTER(uart_meson, CONFIG_UART_LOG_LEVEL);
 #define TX_EMPTY          (1U << 22)
 #define XMIT_BUSY         (1U << 25)
 
-/* MISC register — baud rate for older Meson UARTs (not S4 REG5 mode) */
-#define UART_MISC_BAUD_EXT_MASK   0x7U
-#define UART_MISC_BAUD_EXT_SHIFT  0U
-#define UART_MISC_BAUD_MASK       0xFFFU
-#define UART_MISC_BAUD_SHIFT      0U
-
-/* REG5 — new baud rate control for S4 */
-#define UART_REG5_XTAL_DIV_MASK   0x7U
-#define UART_REG5_XTAL_DIV_SHIFT  0U
-#define UART_REG5_USE_XTAL_CLK    (1U << 24)
-#define UART_REG5_USE_NEW_RATE    (1U << 23)
+/* REG5 baud rate control */
+#define REG5_XTAL_DIV_SHIFT  0U
+#define REG5_USE_NEW_RATE    (1U << 23)
+#define REG5_USE_XTAL_CLK    (1U << 24)
 
 struct meson_uart_config {
-	MMIO_MMIO8_CALLBACKS_TYPE;
-	uint32_t base;
-	uint32_t irq;
-	uint32_t clock_freq;   /* XTAL frequency (24MHz) */
+	DEVICE_MMIO_ROM;
+	uint32_t clock_freq;
 	uint32_t baud_rate;
 };
 
 struct meson_uart_data {
-	uint8_t *rx_buf;
-	uint16_t rx_buf_len;
-	uint16_t rx_buf_head;
-	uint16_t rx_buf_tail;
+	DEVICE_MMIO_RAM;
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	uart_irq_callback_user_data_t irq_cb;
 	void *irq_cb_data;
@@ -94,16 +67,12 @@ struct meson_uart_data {
 
 static inline uint32_t meson_uart_read(const struct device *dev, uint32_t offset)
 {
-	const struct meson_uart_config *cfg = dev->config;
-
-	return sys_read32(cfg->base + offset);
+	return sys_read32(DEVICE_MMIO_GET(dev) + offset);
 }
 
 static inline void meson_uart_write(const struct device *dev, uint32_t offset, uint32_t value)
 {
-	const struct meson_uart_config *cfg = dev->config;
-
-	sys_write32(value, cfg->base + offset);
+	sys_write32(value, DEVICE_MMIO_GET(dev) + offset);
 }
 
 static int meson_uart_poll_in(const struct device *dev, unsigned char *p_char)
@@ -133,15 +102,7 @@ static void meson_uart_poll_out(const struct device *dev, unsigned char out_char
 
 static int meson_uart_err_check(const struct device *dev)
 {
-	uint32_t status;
-	int errors = 0;
-
-	status = meson_uart_read(dev, UART_STATUS);
-
-	/* Meson UART STATUS doesn't have standard error bits like ns16550.
-	 * Check for unusual conditions — RX_EMPTY means no data, XMIT_BUSY
-	 * means TX still sending. For now, return 0 errors. */
-	return errors;
+	return 0;
 }
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
@@ -182,26 +143,19 @@ static int meson_uart_fifo_read(const struct device *dev,
 
 static void meson_uart_irq_tx_enable(const struct device *dev)
 {
-	/* Meson UART doesn't have a dedicated TX interrupt enable bit.
-	 * The CONTROL register only has TX_EN/RX_EN for FIFO path enable.
-	 * For interrupt-driven TX, we rely on checking TX_EMPTY/TX_FULL
-	 * in STATUS. Enable the global UART interrupt. */
 	meson_uart_write(dev, UART_CONTROL,
 			 meson_uart_read(dev, UART_CONTROL) | TX_EN);
 }
 
 static void meson_uart_irq_tx_disable(const struct device *dev)
 {
-	/* Disable TX path — note: we keep RX_EN for console input */
 	meson_uart_write(dev, UART_CONTROL,
 			 meson_uart_read(dev, UART_CONTROL) & ~TX_EN);
 }
 
 static int meson_uart_irq_tx_ready(const struct device *dev)
 {
-	uint32_t status = meson_uart_read(dev, UART_STATUS);
-
-	return !(status & TX_FULL);
+	return !(meson_uart_read(dev, UART_STATUS) & TX_FULL);
 }
 
 static void meson_uart_irq_rx_enable(const struct device *dev)
@@ -218,9 +172,7 @@ static void meson_uart_irq_rx_disable(const struct device *dev)
 
 static int meson_uart_irq_rx_ready(const struct device *dev)
 {
-	uint32_t status = meson_uart_read(dev, UART_STATUS);
-
-	return !(status & RX_EMPTY);
+	return !(meson_uart_read(dev, UART_STATUS) & RX_EMPTY);
 }
 
 static int meson_uart_irq_is_pending(const struct device *dev)
@@ -258,6 +210,8 @@ static int meson_uart_init(const struct device *dev)
 	uint32_t ctrl;
 	const struct meson_uart_config *cfg = dev->config;
 
+	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
+
 	/* Reset TX/RX FIFOs, clear errors, then enable TX/RX */
 	ctrl = meson_uart_read(dev, UART_CONTROL);
 	ctrl |= UART_INIT_MASK;
@@ -272,33 +226,24 @@ static int meson_uart_init(const struct device *dev)
 	meson_uart_write(dev, UART_CONTROL, ctrl);
 
 	/* Configure baud rate using REG5 (S4 new rate mode)
-	 *
-	 * For S4: baud_rate = xtal_clk / (xtal_div * 8 * (reg5_baud + 1))
-	 * We use XTAL 24MHz and set xtal_div and reg5_baud for target baud.
-	 * For 115200: xtal_div=1, then reg5_baud = (24000000/(1*8*115200)) - 1
-	 *            reg5_baud = 24000000/921600 - 1 = 25.04 → 25
-	 *            actual baud ≈ 24000000/(8*26) = 115384 (close enough)
+	 * baud = xtal_clk / (xtal_div * 8 * (reg5_baud + 1))
+	 * For 115200 from 24MHz: xtal_div=1, reg5_baud = 24000000/(8*115200) - 1 = 25
+	 * actual baud ≈ 24000000/(8*26) = 115384
 	 */
 	if (cfg->baud_rate > 0 && cfg->clock_freq > 0) {
-		uint32_t xtal_div = 1; /* xtal_div=1 gives best precision for common bauds */
+		uint32_t xtal_div = 1;
 		uint32_t divisor = cfg->clock_freq / (xtal_div * 8U * cfg->baud_rate);
-		uint32_t reg5_val;
 
 		if (divisor > 0) {
-			divisor -= 1; /* REG5 baud = (divisor - 1) */
+			divisor -= 1;
 		}
 
-		reg5_val = (xtal_div << UART_REG5_XTAL_DIV_SHIFT) |
-			   (divisor & 0xFFFF) |
-			   UART_REG5_USE_NEW_RATE |
-			   UART_REG5_USE_XTAL_CLK;
+		uint32_t reg5_val = (xtal_div << REG5_XTAL_DIV_SHIFT) |
+				    (divisor & 0xFFFF) |
+				    REG5_USE_NEW_RATE |
+				    REG5_USE_XTAL_CLK;
 		meson_uart_write(dev, UART_REG5, reg5_val);
 	}
-
-#ifdef CONFIG_UART_INTERRUPT_DRIVEN
-	IRQ_CONNECT(cfg->irq, 0, meson_uart_isr, dev, 0);
-	irq_enable(cfg->irq);
-#endif
 
 	return 0;
 }
@@ -325,10 +270,9 @@ static const struct uart_driver_api meson_uart_driver_api = {
 #define MESON_UART_INIT(inst)                                          \
 	static struct meson_uart_data meson_uart_data_##inst;          \
 	static const struct meson_uart_config meson_uart_config_##inst = { \
-		.base = DT_INST_REG_ADDR(inst),                            \
-		.irq = DT_INST_IRQN(inst),                                 \
-		.clock_freq = DT_INST_PROP(inst, clock_frequency),         \
-		.baud_rate = DT_INST_PROP(inst, current_speed),            \
+		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(inst)),                  \
+		.clock_freq = DT_INST_PROP(inst, clock_frequency),        \
+		.baud_rate = DT_INST_PROP(inst, current_speed),           \
 	};                                                              \
 	DEVICE_DT_INST_DEFINE(inst,                                     \
 			      meson_uart_init,                              \

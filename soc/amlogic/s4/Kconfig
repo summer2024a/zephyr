@@ -9,7 +9,7 @@ config SOC_AMLOGIC_MESON_S4
 	select ARMV8_A_TIMER
 	select CACHE_L2
 	select GIC
-	select GIC_V3_64K_STRIDE
+	select GIC_V2
 	select TIMER_ARMv8_CNTVCT
 	select SYS_CLOCK_EXISTS
 	help

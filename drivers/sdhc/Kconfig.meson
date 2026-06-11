@@ -3,7 +3,7 @@
 config SDHC_MESON_AXG_MMC
 	bool "Amlogic Meson AXG MMC SDHC driver"
 	default y if DT_HAS_AMLOGIC_MESON_AXG_MMC_ENABLED
-	select SDHC
+	depends on SDHC
 	help
 	  Enable Amlogic Meson AXG MMC controller driver for S4 SoC.
 

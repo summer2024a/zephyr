@@ -1,0 +1,12 @@
+description: Amlogic Meson S4 UART
+
+compatible: "amlogic,meson-s4-uart"
+
+include: [uart-controller.yaml]
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true

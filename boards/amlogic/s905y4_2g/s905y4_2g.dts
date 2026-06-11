@@ -14,9 +14,10 @@
 		ethernet0 = &ethmac;
 	};
 
-	memory@0 {
+	memory@1000000 {
 		device_type = "memory";
-		/* 2GB DDR, starting at 0x0 (BL33 entry at 0x01000000) */
+		/* 2GB DDR starting at 0x01000000 (BL33 entry point)
+		 * First 8MB used for flash/code, rest is available RAM */
 		reg = <0x0 0x01000000 0x0 0x7F000000>;
 	};
 };

@@ -4,10 +4,12 @@
  *
  * Amlogic S4 SoC common DTSI — CPU, timer, PSCI, GIC-400, chosen, memory.
  * Based on meson-s4.dtsi from Linux kernel.
+ *
+ * Uses 2-cell addressing (#address-cells=2, #size-cells=2) for
+ * 64-bit peripheral base addresses (e.g. 0xFDC00000, 0xFE08A000).
  */
 
 #include <mem.h>
-#include <arm64/armv8-a.dtsi>
 #include <zephyr/dt-bindings/interrupt-controller/arm-gic.h>
 
 / {
@@ -60,7 +62,7 @@
 	};
 
 	gic: interrupt-controller@fff01000 {
-		compatible = "arm,gic-400", "arm,gic";
+		compatible = "arm,gic-v2", "arm,gic";
 		#interrupt-cells = <4>;
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -75,18 +77,17 @@
 	xtal: xtal-clk {
 		compatible = "fixed-clock";
 		clock-frequency = <24000000>;
-		clock-output-names = "xtal";
 		#clock-cells = <0>;
 	};
 
-	flash0: flash@0 {
+	flash0: flash@1000000 {
 		compatible = "soc-nv-flash";
 		reg = <0x0 0x01000000 0x0 DT_SIZE_M(8)>;
 	};
 
-	sram0: memory@0 {
+	sram0: memory@1080000 {
 		compatible = "mmio-sram";
-		reg = <0x0 0x01000000 0x0 DT_SIZE_M(8)>;
+		reg = <0x0 0x01080000 0x0 DT_SIZE_M(8)>;
 	};
 
 	chosen {
@@ -97,6 +98,7 @@
 	};
 
 	soc {
+		compatible = "simple-bus";
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;

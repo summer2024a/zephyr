@@ -4,12 +4,102 @@
  *
  * Amlogic S4 peripheral DTSI — MMC, ETH, USB, I2C, etc.
  * Based on meson-s4.dtsi from Linux kernel.
- * All nodes default to "disabled" until Zephyr drivers are ready.
+ *
+ * IMPORTANT: APB4 bus at 0xFE000000 uses ranges mapping.
+ * Internal addresses 0x0-0x480000 map to bus addresses 0xFE000000-0xFE480000.
+ * So peripherals inside apb4 use relative addresses (e.g., 0x7a000 not 0xfe07a000).
+ * Top-level peripherals (eth, mmc, usb xhci) use full bus addresses.
  */
 
 / {
 	soc {
-		/* Ethernet DW MAC 3.70a with internal RMII PHY */
+		/* APB4 peripheral bus (UART, clocks, reset, pinctrl, I2C, PWM, MDIO mux) */
+		apb4: bus@fe000000 {
+			compatible = "simple-bus";
+			reg = <0x0 0xfe000000 0x0 0x480000>;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges = <0x0 0x0 0x0 0xfe000000 0x0 0x480000>;
+
+			/* MDIO mux for internal/external PHY */
+			eth_phy: mdio-multiplexer@28000 {
+				compatible = "amlogic,g12a-mdio-mux";
+				reg = <0x0 0x28000 0x0 0xa4>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
+
+				int_mdio: mdio@1 {
+					reg = <1>;
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					internal_ephy: ethernet-phy@8 {
+						compatible = "ethernet-phy-id0180.3301",
+						     "ethernet-phy-ieee802.3-c22";
+						reg = <8>;
+						max-speed = <100>;
+					};
+				};
+			};
+
+			/* Watchdog */
+			wdt0: watchdog@2100 {
+				compatible = "amlogic,s4-wdt";
+				reg = <0x0 0x2100 0x0 0x10>;
+				status = "disabled";
+			};
+
+			/* USB2 PHYs */
+			usb2_phy0: phy@3c000 {
+				compatible = "amlogic,s4-usb2-phy";
+				reg = <0x0 0x3c000 0x0 0x2000>;
+				#phy-cells = <0>;
+				status = "disabled";
+			};
+
+			usb2_phy1: phy@3e000 {
+				compatible = "amlogic,s4-usb2-phy";
+				reg = <0x0 0x3e000 0x0 0x2000>;
+				#phy-cells = <0>;
+				status = "disabled";
+			};
+
+			/* I2C controllers */
+			i2c0: i2c@66000 {
+				compatible = "amlogic,meson-axg-i2c";
+				reg = <0x0 0x66000 0x0 0x20>;
+				interrupts = <GIC_SPI 160 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+				clock-frequency = <100000>;
+				status = "disabled";
+			};
+
+			i2c1: i2c@68000 {
+				compatible = "amlogic,meson-axg-i2c";
+				reg = <0x0 0x68000 0x0 0x20>;
+				interrupts = <GIC_SPI 161 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+				clock-frequency = <100000>;
+				status = "disabled";
+			};
+
+			i2c2: i2c@6a000 {
+				compatible = "amlogic,meson-axg-i2c";
+				reg = <0x0 0x6a000 0x0 0x20>;
+				interrupts = <GIC_SPI 162 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+				clock-frequency = <100000>;
+				status = "disabled";
+			};
+
+			i2c3: i2c@6c000 {
+				compatible = "amlogic,meson-axg-i2c";
+				reg = <0x0 0x6c000 0x0 0x20>;
+				interrupts = <GIC_SPI 163 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+				clock-frequency = <100000>;
+				status = "disabled";
+			};
+		};
+
+		/* Ethernet DW MAC 3.70a with internal RMII PHY (top-level) */
 		ethmac: ethernet@fdc00000 {
 			compatible = "amlogic,meson-axg-dwmac",
 				     "snps,dwmac-3.70a",
@@ -31,35 +121,14 @@
 			};
 		};
 
-		/* MDIO mux for internal/external PHY */
-		eth_phy: mdio-multiplexer@fe0028000 {
-			compatible = "amlogic,g12a-mdio-mux";
-			reg = <0x0 0xfe0028000 0x0 0xa4>;
-			#address-cells = <1>;
-			#size-cells = <0>;
-			mdio-parent-bus = <&mdio0>;
-			status = "disabled";
-
-			int_mdio: mdio@1 {
-				reg = <1>;
-				#address-cells = <1>;
-				#size-cells = <0>;
-
-				internal_ephy: ethernet-phy@8 {
-					compatible = "ethernet-phy-id0180.3301",
-					     "ethernet-phy-ieee802.3-c22";
-					reg = <8>;
-					max-speed = <100>;
-				};
-			};
-		};
-
-		/* SD card (mmc@fe08a000) */
+		/* SD card (mmc@fe08a000) — top-level */
 		sd: mmc@fe08a000 {
 			compatible = "amlogic,meson-axg-mmc";
 			reg = <0x0 0xfe08a000 0x0 0x800>;
 			interrupts = <GIC_SPI 177 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
 			clock-frequency = <24000000>;
+			max-bus-freq = <200000000>;
+			min-bus-freq = <400000>;
 			status = "disabled";
 
 			sd_disk: disk {
@@ -69,12 +138,14 @@
 			};
 		};
 
-		/* eMMC (mmc@fe08c000) */
+		/* eMMC (mmc@fe08c000) — top-level */
 		emmc: mmc@fe08c000 {
 			compatible = "amlogic,meson-axg-mmc";
 			reg = <0x0 0xfe08c000 0x0 0x800>;
 			interrupts = <GIC_SPI 178 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
 			clock-frequency = <24000000>;
+			max-bus-freq = <200000000>;
+			min-bus-freq = <400000>;
 			status = "disabled";
 
 			emmc_disk: disk {
@@ -84,11 +155,14 @@
 			};
 		};
 
-		/* USB (host mode, XHCI) */
+		/* USB (host mode) — top-level */
 		usb: usb@fe03a000 {
 			compatible = "amlogic,meson-g12a-usb-ctrl";
 			reg = <0x0 0xfe03a000 0x0 0xa0>;
 			interrupts = <GIC_SPI 129 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
 			dr_mode = "host";
 			status = "disabled";
 
@@ -98,61 +172,6 @@
 				interrupts = <GIC_SPI 130 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
 				status = "disabled";
 			};
-		};
-
-		/* USB2 PHYs */
-		usb2_phy0: phy@fe003c000 {
-			compatible = "amlogic,s4-usb2-phy";
-			reg = <0x0 0xfe003c000 0x0 0x2000>;
-			#phy-cells = <0>;
-			status = "disabled";
-		};
-
-		usb2_phy1: phy@fe003e000 {
-			compatible = "amlogic,s4-usb2-phy";
-			reg = <0x0 0xfe003e000 0x0 0x2000>;
-			#phy-cells = <0>;
-			status = "disabled";
-		};
-
-		/* Watchdog */
-		wdt0: watchdog@fe002100 {
-			compatible = "amlogic,s4-wdt";
-			reg = <0x0 0xfe002100 0x0 0x10>;
-			status = "disabled";
-		};
-
-		/* I2C controllers */
-		i2c0: i2c@fe0066000 {
-			compatible = "amlogic,meson-axg-i2c";
-			reg = <0x0 0xfe0066000 0x0 0x20>;
-			interrupts = <GIC_SPI 160 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
-			clock-frequency = <100000>;
-			status = "disabled";
-		};
-
-		i2c1: i2c@fe0068000 {
-			compatible = "amlogic,meson-axg-i2c";
-			reg = <0x0 0xfe0068000 0x0 0x20>;
-			interrupts = <GIC_SPI 161 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
-			clock-frequency = <100000>;
-			status = "disabled";
-		};
-
-		i2c2: i2c@fe006a000 {
-			compatible = "amlogic,meson-axg-i2c";
-			reg = <0x0 0xfe006a000 0x0 0x20>;
-			interrupts = <GIC_SPI 162 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
-			clock-frequency = <100000>;
-			status = "disabled";
-		};
-
-		i2c3: i2c@fe006c000 {
-			compatible = "amlogic,meson-axg-i2c";
-			reg = <0x0 0xfe006c000 0x0 0x20>;
-			interrupts = <GIC_SPI 163 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
-			clock-frequency = <100000>;
-			status = "disabled";
 		};
 	};
 };

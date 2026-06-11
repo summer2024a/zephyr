@@ -1,0 +1,8 @@
+# Copyright (c) 2026 Amlogic, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Power State Coordination Interface (PSCI) version 1.0.
+
+compatible: "arm,psci-1.0"
+
+include: arm_psci.yaml
