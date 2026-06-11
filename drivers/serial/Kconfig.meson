@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config UART_MESON
+	bool "Amlogic Meson UART driver"
+	default y if DT_HAS_AMLOGIC_MESON_S4_UART_ENABLED
+	select SERIAL_HAS_DRIVER
+	select SERIAL_SUPPORT_INTERRUPT
+	help
+	  Enable Amlogic Meson UART driver for S4 and later SoCs.
+
+	  This UART has a different register layout from ns16550/DW APB:
+	  WFIFO (0x00), RFIFO (0x04), CONTROL (0x08), STATUS (0x0C),
+	  MISC (0x10), REG5 (0x14).
+
+config UART_MESON_S4
+	bool "Amlogic S4 Meson UART specific support"
+	depends on UART_MESON
+	default y if DT_HAS_AMLOGIC_MESON_S4_UART_ENABLED
+	help
+	  Enable S4-specific clock and baud rate configuration for Meson UART.
+
+config UART_CONSOLE_MESON
+	bool "Use Meson UART for console"
+	depends on UART_MESON && UART_CONSOLE
+	default y if DT_HAS_AMLOGIC_MESON_S4_UART_ENABLED
+	help
+	  Use Meson UART as the Zephyr console output device.

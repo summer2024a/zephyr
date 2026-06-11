@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_S905Y4_2G
+
+config ARM_ARCH_TIMER
+	default y
+
+config CACHE_MANAGEMENT
+	default y
+
+config SYS_CLOCK_HW_CYCLES_PER_SEC
+	default 1000000000
+
+config SYS_CLOCK_TICKS_PER_SEC
+	default 1000
+
+config NUM_IRQS
+	default 256
+
+config SOC_MESON_S4_BOOT_TRACE
+	default n
+
+config SOC_MESON_S4_SHELL_SMP
+	default y
+
+config SOC_PREP_HOOK
+	default y
+
+config ARMV8_A_NS
+	default y
+
+config UART_MESON
+	default y
+
+config SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN
+	default y
+
+config SHELL_THREAD_PRIORITY_OVERRIDE
+	default y
+
+config SHELL_THREAD_PRIORITY
+	default 10
+
+config MAX_XLAT_TABLES
+	default 16
+
+endif

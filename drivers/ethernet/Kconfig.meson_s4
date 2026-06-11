@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config ETH_DWMAC_MESON_S4
+	bool "Synopsys DesignWare MAC driver for Amlogic S4"
+	depends on NET_L2_ETHERNET
+	depends on DT_HAS_AMLOGIC_MESON_AXG_DWMAC_ENABLED
+	select ETH_DWMAC
+	help
+	  Enable Synopsys DesignWare MAC (DWMAC 3.70a) driver for
+	  Amlogic S4 (S905Y4/S905W2) SoC.
+
+	  S4 uses internal RMII PHY (ethernet-phy-id0180.3301) with
+	  MDIO mux for internal/external PHY selection.
+	  Maximum speed: 100Mbps (internal PHY).
+
+config ETH_DWMAC_MESON_S4_LOG_LEVEL
+	int "S4 DWMAC log level"
+	depends on ETH_DWMAC_MESON_S4
+	default 0
+	help
+	  Log level for S4 DWMAC driver.

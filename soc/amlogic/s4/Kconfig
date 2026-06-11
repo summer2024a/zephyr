@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_AMLOGIC_MESON_S4
+	select ARM64
+	select CPU_CORTEX_A
+	select ARMV8_A
+	select ARMV8_A_FP
+	select CPU_HAS_MMU
+	select ARMV8_A_TIMER
+	select CACHE_L2
+	select GIC
+	select GIC_V3_64K_STRIDE
+	select TIMER_ARMv8_CNTVCT
+	select SYS_CLOCK_EXISTS
+	help
+	  Amlogic Meson S4 (S905W2/S905Y4) ARM64 SoC (4 Cortex-A55 cores).
+
+	  PSCI firmware in BL31 handles secondary CPU boot via SMC.
+	  GIC-400 interrupt controller. Meson UART, DW MAC 3.70a with
+	  internal RMII PHY, Meson AXG MMC controller, XHCI USB.
+
+config SOC_MESON_S4_BOOT_TRACE
+	bool "S4 boot trace on UART_B (early markers)"
+	depends on SOC_AMLOGIC_MESON_S4
+	default n
+	help
+	  Optional early-boot UART trace beyond the always-on boot markers.
+	  Adds character markers at key boot stages on UART_B @ 115200.
+
+config SOC_MESON_S4_SHELL_SMP
+	bool "Shell command meson_s4_smp (SMP status)"
+	depends on SOC_AMLOGIC_MESON_S4 && SHELL
+	default y
+	help
+	  Register meson_s4_smp shell command for PSCI / online CPU check.

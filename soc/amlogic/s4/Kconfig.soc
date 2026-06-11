@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_SERIES_S4
+	bool
+	select SOC_FAMILY_AMLOGIC
+
+config SOC_AMLOGIC_MESON_S4
+	bool
+	select SOC_SERIES_S4
+
+config SOC_SERIES
+	default "s4" if SOC_SERIES_S4
+
+config SOC
+	default "meson_s4" if SOC_AMLOGIC_MESON_S4

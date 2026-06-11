@@ -1,0 +1,158 @@
+/*
+ * Copyright (c) 2026 Amlogic, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Amlogic S4 peripheral DTSI — MMC, ETH, USB, I2C, etc.
+ * Based on meson-s4.dtsi from Linux kernel.
+ * All nodes default to "disabled" until Zephyr drivers are ready.
+ */
+
+/ {
+	soc {
+		/* Ethernet DW MAC 3.70a with internal RMII PHY */
+		ethmac: ethernet@fdc00000 {
+			compatible = "amlogic,meson-axg-dwmac",
+				     "snps,dwmac-3.70a",
+				     "snps,dwmac";
+			reg = <0x0 0xfdc00000 0x0 0x10000>,
+			      <0x0 0xfe024000 0x0 0x8>;
+			interrupts = <GIC_SPI 74 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+			interrupt-names = "macirq";
+			clock-frequency = <500000000>;
+			phy-connection-type = "rmii";
+			local-mac-address = [02 00 00 00 00 01];
+			status = "disabled";
+
+			mdio0: mdio {
+				compatible = "snps,dwmac-mdio";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
+			};
+		};
+
+		/* MDIO mux for internal/external PHY */
+		eth_phy: mdio-multiplexer@fe0028000 {
+			compatible = "amlogic,g12a-mdio-mux";
+			reg = <0x0 0xfe0028000 0x0 0xa4>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			mdio-parent-bus = <&mdio0>;
+			status = "disabled";
+
+			int_mdio: mdio@1 {
+				reg = <1>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				internal_ephy: ethernet-phy@8 {
+					compatible = "ethernet-phy-id0180.3301",
+					     "ethernet-phy-ieee802.3-c22";
+					reg = <8>;
+					max-speed = <100>;
+				};
+			};
+		};
+
+		/* SD card (mmc@fe08a000) */
+		sd: mmc@fe08a000 {
+			compatible = "amlogic,meson-axg-mmc";
+			reg = <0x0 0xfe08a000 0x0 0x800>;
+			interrupts = <GIC_SPI 177 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+			clock-frequency = <24000000>;
+			status = "disabled";
+
+			sd_disk: disk {
+				compatible = "zephyr,mmc-disk";
+				disk-name = "SD";
+				bus-width = <4>;
+			};
+		};
+
+		/* eMMC (mmc@fe08c000) */
+		emmc: mmc@fe08c000 {
+			compatible = "amlogic,meson-axg-mmc";
+			reg = <0x0 0xfe08c000 0x0 0x800>;
+			interrupts = <GIC_SPI 178 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+			clock-frequency = <24000000>;
+			status = "disabled";
+
+			emmc_disk: disk {
+				compatible = "zephyr,mmc-disk";
+				disk-name = "SD2";
+				bus-width = <8>;
+			};
+		};
+
+		/* USB (host mode, XHCI) */
+		usb: usb@fe03a000 {
+			compatible = "amlogic,meson-g12a-usb-ctrl";
+			reg = <0x0 0xfe03a000 0x0 0xa0>;
+			interrupts = <GIC_SPI 129 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+			dr_mode = "host";
+			status = "disabled";
+
+			crg_xhci: usb@fde00000 {
+				compatible = "generic-xhci";
+				reg = <0x0 0xfde00000 0x0 0x100000>;
+				interrupts = <GIC_SPI 130 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+				status = "disabled";
+			};
+		};
+
+		/* USB2 PHYs */
+		usb2_phy0: phy@fe003c000 {
+			compatible = "amlogic,s4-usb2-phy";
+			reg = <0x0 0xfe003c000 0x0 0x2000>;
+			#phy-cells = <0>;
+			status = "disabled";
+		};
+
+		usb2_phy1: phy@fe003e000 {
+			compatible = "amlogic,s4-usb2-phy";
+			reg = <0x0 0xfe003e000 0x0 0x2000>;
+			#phy-cells = <0>;
+			status = "disabled";
+		};
+
+		/* Watchdog */
+		wdt0: watchdog@fe002100 {
+			compatible = "amlogic,s4-wdt";
+			reg = <0x0 0xfe002100 0x0 0x10>;
+			status = "disabled";
+		};
+
+		/* I2C controllers */
+		i2c0: i2c@fe0066000 {
+			compatible = "amlogic,meson-axg-i2c";
+			reg = <0x0 0xfe0066000 0x0 0x20>;
+			interrupts = <GIC_SPI 160 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+			clock-frequency = <100000>;
+			status = "disabled";
+		};
+
+		i2c1: i2c@fe0068000 {
+			compatible = "amlogic,meson-axg-i2c";
+			reg = <0x0 0xfe0068000 0x0 0x20>;
+			interrupts = <GIC_SPI 161 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+			clock-frequency = <100000>;
+			status = "disabled";
+		};
+
+		i2c2: i2c@fe006a000 {
+			compatible = "amlogic,meson-axg-i2c";
+			reg = <0x0 0xfe006a000 0x0 0x20>;
+			interrupts = <GIC_SPI 162 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+			clock-frequency = <100000>;
+			status = "disabled";
+		};
+
+		i2c3: i2c@fe006c000 {
+			compatible = "amlogic,meson-axg-i2c";
+			reg = <0x0 0xfe006c000 0x0 0x20>;
+			interrupts = <GIC_SPI 163 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+			clock-frequency = <100000>;
+			status = "disabled";
+		};
+	};
+};

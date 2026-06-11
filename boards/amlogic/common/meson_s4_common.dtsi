@@ -1,0 +1,114 @@
+/*
+ * Copyright (c) 2026 Amlogic, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Amlogic S4 SoC common DTSI — CPU, timer, PSCI, GIC-400, chosen, memory.
+ * Based on meson-s4.dtsi from Linux kernel.
+ */
+
+#include <mem.h>
+#include <arm64/armv8-a.dtsi>
+#include <zephyr/dt-bindings/interrupt-controller/arm-gic.h>
+
+/ {
+	compatible = "amlogic,meson-s4";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55", "arm,armv8";
+			reg = <0x0>;
+			enable-method = "psci";
+		};
+		cpu1: cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55", "arm,armv8";
+			reg = <0x1>;
+			enable-method = "psci";
+		};
+		cpu2: cpu@2 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55", "arm,armv8";
+			reg = <0x2>;
+			enable-method = "psci";
+		};
+		cpu3: cpu@3 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55", "arm,armv8";
+			reg = <0x3>;
+			enable-method = "psci";
+		};
+	};
+
+	psci {
+		compatible = "arm,psci-1.0";
+		method = "smc";
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>,
+			     <GIC_PPI 14 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>,
+			     <GIC_PPI 11 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>,
+			     <GIC_PPI 10 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+	};
+
+	gic: interrupt-controller@fff01000 {
+		compatible = "arm,gic-400", "arm,gic";
+		#interrupt-cells = <4>;
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		interrupt-controller;
+		reg = <0x0 0xfff01000 0x0 0x1000>,
+		      <0x0 0xfff02000 0x0 0x2000>,
+		      <0x0 0xfff04000 0x0 0x2000>,
+		      <0x0 0xfff06000 0x0 0x2000>;
+	};
+
+	xtal: xtal-clk {
+		compatible = "fixed-clock";
+		clock-frequency = <24000000>;
+		clock-output-names = "xtal";
+		#clock-cells = <0>;
+	};
+
+	flash0: flash@0 {
+		compatible = "soc-nv-flash";
+		reg = <0x0 0x01000000 0x0 DT_SIZE_M(8)>;
+	};
+
+	sram0: memory@0 {
+		compatible = "mmio-sram";
+		reg = <0x0 0x01000000 0x0 DT_SIZE_M(8)>;
+	};
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,console = &uart_b;
+		zephyr,shell-uart = &uart_b;
+	};
+
+	soc {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		interrupt-parent = <&gic>;
+
+		uart_b: serial@fe07a000 {
+			compatible = "amlogic,meson-s4-uart";
+			reg = <0x0 0xfe07a000 0x0 0x18>;
+			interrupts = <GIC_SPI 169 IRQ_TYPE_EDGE IRQ_DEFAULT_PRIORITY>;
+			clock-frequency = <24000000>;
+			current-speed = <115200>;
+			status = "disabled";
+		};
+	};
+};

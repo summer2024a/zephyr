@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+family:
+- name: amlogic
+  series:
+  - name: s4
+    socs:
+    - name: meson_s4

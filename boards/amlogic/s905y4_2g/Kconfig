@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_S905Y4_2G
+	select SOC_AMLOGIC_MESON_S4 if BOARD_S905Y4_2G_MESON_S4
+
+config BOARD_S905Y4_2G_MESON_S4
+	select SOC_AMLOGIC_MESON_S4

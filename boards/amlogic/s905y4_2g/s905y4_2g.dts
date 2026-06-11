@@ -1,0 +1,62 @@
+/dts-v1/;
+
+#include "../common/meson_s4_common.dtsi"
+#include "../common/meson_s4_peripherals.dtsi"
+
+/ {
+	model = "Amlogic S4 S905Y4 2GB Development Board";
+	compatible = "amlogic,s4", "amlogic,meson-s4";
+
+	aliases {
+		serial0 = &uart_b;
+		mmc0 = &sd;
+		mmc1 = &emmc;
+		ethernet0 = &ethmac;
+	};
+
+	memory@0 {
+		device_type = "memory";
+		/* 2GB DDR, starting at 0x0 (BL33 entry at 0x01000000) */
+		reg = <0x0 0x01000000 0x0 0x7F000000>;
+	};
+};
+
+/* Enable UART_B for console */
+&uart_b {
+	status = "okay";
+};
+
+/* Enable Ethernet (RMII, internal PHY) */
+&ethmac {
+	phy-handle = <&internal_ephy>;
+	status = "okay";
+};
+
+&eth_phy {
+	status = "okay";
+};
+
+&int_mdio {
+	status = "okay";
+};
+
+/* Enable SD card */
+&sd {
+	status = "okay";
+	bus-width = <4>;
+};
+
+/* Enable eMMC */
+&emmc {
+	status = "okay";
+	bus-width = <8>;
+};
+
+/* USB host mode */
+&usb {
+	status = "okay";
+};
+
+&crg_xhci {
+	status = "okay";
+};

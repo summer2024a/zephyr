@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config SDHC_MESON_AXG_MMC
+	bool "Amlogic Meson AXG MMC SDHC driver"
+	default y if DT_HAS_AMLOGIC_MESON_AXG_MMC_ENABLED
+	select SDHC
+	help
+	  Enable Amlogic Meson AXG MMC controller driver for S4 SoC.
+
+	  This driver supports the Meson MMC controller found in S4
+	  (S905Y4/S905W2) SoCs, used for SD card and eMMC storage.
+
+	  Register layout differs from DesignWare DWC MSHC (lynxi_dwcmshc).
+
+config SDHC_MESON_AXG_MMC_INTERRUPT
+	bool "Use interrupt-driven mode for Meson MMC"
+	depends on SDHC_MESON_AXG_MMC
+	default y
+	help
+	  Enable interrupt-driven transfer mode for Meson MMC controller.
+
+config SDHC_MESON_AXG_MMC_DEBUG
+	bool "Enable debug logging for Meson MMC"
+	depends on SDHC_MESON_AXG_MMC
+	default n
+	help
+	  Enable verbose debug logging for Meson MMC driver.

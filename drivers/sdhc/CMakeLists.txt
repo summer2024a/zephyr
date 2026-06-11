@@ -21,6 +21,7 @@ zephyr_library_sources_ifdef(CONFIG_SDHC_RENESAS_RA sdhc_renesas_ra.c)
 zephyr_library_sources_ifdef(CONFIG_SDHC_STM32_SDIO sdhc_stm32.c)
 zephyr_library_sources_ifdef(CONFIG_SPI_SDHC sdhc_spi.c)
 zephyr_library_sources_ifdef(CONFIG_XLNX_SDHC xlnx_sdhc.c)
+zephyr_library_sources_ifdef(CONFIG_SDHC_MESON_AXG_MMC sdhc_meson_axg_mmc.c)
 # zephyr-keep-sorted-stop
 
 endif()

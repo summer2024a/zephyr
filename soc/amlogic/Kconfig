@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Amlogic SoC family
+
+config SOC_FAMILY_AMLOGIC
+	bool
+
+config SOC_FAMILY
+	default "amlogic" if SOC_FAMILY_AMLOGIC
+
+rsource "*/Kconfig.soc"
+
+if SOC_FAMILY_AMLOGIC
+
+rsource "*/Kconfig"
+
+endif

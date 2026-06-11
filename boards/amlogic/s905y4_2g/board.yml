@@ -1,0 +1,6 @@
+board:
+  name: s905y4_2g
+  full_name: Amlogic S4 S905Y4 2GB Development Board
+  vendor: amlogic
+  socs:
+  - name: meson_s4

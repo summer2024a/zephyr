@@ -1,0 +1,14 @@
+identifier: s905y4_2g
+name: Amlogic S4 S905Y4 2GB
+type: mcu
+arch: arm64
+ram: 2048
+flash: 8192
+toolchain:
+  - zephyr
+  - cross-compiler
+supported:
+  - uart
+  - ethernet
+  - mmc
+  - usb
