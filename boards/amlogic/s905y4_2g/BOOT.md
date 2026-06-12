@@ -188,13 +188,13 @@ Zephyr 配置：
 
 - **UART_B**: 基址 0xFE07A000 (Amlogic Meson UART，非 ns16550)
 - **中断**: GIC SPI #169
-- **波特率**: 115200
+- **波特率**: 921600
 - **时钟**: 24MHz XTAL
 - **引脚**: pinctrl ao_uart_pins (GPIOB_0/GPIOB_1)
 
 串口终端设置：
 ```
-波特率: 115200
+波特率: 921600
 数据位: 8
 停止位: 1
 校验:   None

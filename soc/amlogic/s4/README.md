@@ -105,7 +105,7 @@ fatload mmc 1 0x01000000 zephyr.uimg
 bootm 0x01000000
 ```
 
-Serial console: UART_B, 115200, 8N1, GPIOB_0/GPIOB_1.
+Serial console: UART_B, 921600, 8N1, GPIOB_0/GPIOB_1.
 
 ### Shell commands available after boot
 
