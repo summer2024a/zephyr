@@ -80,14 +80,20 @@
 		#clock-cells = <0>;
 	};
 
+	/*
+	 * BL33 (Zephyr) runs at 0x01000000 (NS_BL33_ENTRYPOINT).
+	 * Following the baremetal_test / ka200 pattern: load address = run address.
+	 * Both flash and sram point to the same memory range starting at 0x01000000.
+	 * The kernel code is loaded directly to this address and runs in-place.
+	 */
 	flash0: flash@1000000 {
 		compatible = "soc-nv-flash";
-		reg = <0x0 0x01000000 0x0 DT_SIZE_M(8)>;
+		reg = <0x0 0x01000000 0x0 DT_SIZE_M(128)>;
 	};
 
-	sram0: memory@1080000 {
+	sram0: memory@1000000 {
 		compatible = "mmio-sram";
-		reg = <0x0 0x01080000 0x0 DT_SIZE_M(8)>;
+		reg = <0x0 0x01000000 0x0 DT_SIZE_M(128)>;
 	};
 
 	chosen {

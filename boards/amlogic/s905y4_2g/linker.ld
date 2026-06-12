@@ -75,7 +75,7 @@ MEMORY
     RAM       (wx) : ORIGIN = RAM_ADDR, LENGTH = RAM_SIZE
     LINKER_DT_REGIONS()
     /* Used by and documented in include/linker/intlist.ld */
-    IDT_LIST  (wx) : ORIGIN = 0x01000000, LENGTH = 32 * 1K
+    IDT_LIST  (wx) : ORIGIN = 0x08000000, LENGTH = 32 * 1K
 #ifdef CONFIG_LINKER_USE_ONDEMAND_SECTION
     ONDEMAND (rx) : ORIGIN = (CONFIG_KERNEL_VM_BASE), LENGTH = (CONFIG_KERNEL_VM_SIZE)
 #endif
