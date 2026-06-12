@@ -203,52 +203,44 @@ Zephyr 配置：
 
 ## 7. 构建与部署
 
-### 7.1 构建 hello_world（最小验证）
+### 7.1 构建 Shell Console（推荐）
+
+Board defconfig 已内置 Shell、SMP、logging，构建 hello_world sample 即可获得
+完整的 Shell Console（交互式 SMP 状态、设备列表、内核信息等）：
 
 ```bash
 cd /path/to/zephyrproject
-west build -b s905y4_2g -d build_s4 -s zephyr/samples/hello_world --pristine
+west build -b s905y4_2g -d build_s4_shell -s zephyr/samples/hello_world --pristine
 ```
 
-### 7.2 构建 Shell Console 应用（推荐）
+### 7.2 打包 uImage
 
-Shell Console 包含 SMP 状态检查、内核信息、设备列表等交互式命令：
-
-```bash
-cd /path/to/zephyrproject
-west build -b s905y4_2g -d build_s4_shell -s app_s4_shell --pristine
-```
-
-> `app_s4_shell` 目录需要放在 zephyrproject 根目录下，包含 `CMakeLists.txt`、`prj.conf` 和 `src/main.c`。
-
-### 7.3 打包 uImage
-
-编译完成后自动生成 `zephyr.bin` 和 `zephyr.uimg`（如果 CMakeLists.txt 的 post-build step 执行）。
-也可手动打包：
+编译完成后自动生成 `zephyr.bin` 和 `zephyr.uimg`（board CMakeLists.txt 的
+`extra_post_build_commands` 步骤自动调用 mkimage）。也可手动打包：
 
 ```bash
 mkimage -A arm64 -O u-boot -T standalone -C none \
     -a 0x01000000 -e 0x01000000 \
     -n "Zephyr S4 S905Y4" \
-    -d build_s4/zephyr/zephyr.bin \
-    build_s4/zephyr/zephyr.uimg
+    -d build_s4_shell/zephyr/zephyr.bin \
+    build_s4_shell/zephyr/zephyr.uimg
 ```
 
-### 7.4 部署到 SD 卡
+### 7.3 部署到 SD 卡
 
 ```bash
 # 方法 1：使用 deploy_sd.sh 脚本（自动打包 + 复制）
-bash boards/amlogic/s905y4_2g/deploy_sd.sh build_s4 /dev/sdb1
+bash boards/amlogic/s905y4_2g/deploy_sd.sh build_s4_shell /dev/sdb1
 
 # 方法 2：手动复制
 mkdir -p /mnt/sdcard
 mount /dev/sdb1 /mnt/sdcard
-cp build_s4/zephyr/zephyr.uimg /mnt/sdcard/
+cp build_s4_shell/zephyr/zephyr.uimg /mnt/sdcard/
 sync
 umount /mnt/sdcard
 ```
 
-### 7.5 U-Boot 启动命令
+### 7.4 U-Boot 启动命令
 
 ```bash
 # 查看可用 MMC 设备

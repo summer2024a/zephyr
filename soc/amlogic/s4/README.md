@@ -68,18 +68,53 @@ Key Kconfig options:
 
 ## Quick Build Reference
 
+The board defconfig (`s905y4_2g_defconfig`) already enables Shell, SMP,
+logging, and kernel shell commands. Building with the hello_world sample
+produces a Shell Console application with interactive SMP/device/kernel
+commands — no separate app directory needed.
+
 ```bash
-# Build hello_world
-west build -b s905y4_2g -d build_s4 -s zephyr/samples/hello_world --pristine
-
-# Package uImage (automated by board CMakeLists.txt)
-mkimage -A arm64 -O u-boot -T standalone -C none \
-    -a 0x01000000 -e 0x01000000 \
-    -n "Zephyr S4 S905Y4" \
-    -d build_s4/zephyr/zephyr.bin build_s4/zephyr/zephyr.uimg
-
-# Deploy to SD card
-bash boards/amlogic/s905y4_2g/deploy_sd.sh build_s4 /dev/sdb1
+west build -b s905y4_2g -d build_s4_shell -s zephyr/samples/hello_world --pristine
 ```
 
-See `boards/amlogic/s905y4_2g/BOOT.md` for full boot documentation.
+Both builds automatically generate `zephyr.uimg` (mkimage uImage) if
+`u-boot-tools` is installed, thanks to the board CMakeLists.txt
+`extra_post_build_commands` step. uImage parameters:
+
+```
+Load Address:  0x01000000  (= BL33 NS_BL33_ENTRYPOINT)
+Entry Point:   0x01000000  (load = run, no relocation needed)
+Image Type:    AArch64 U-Boot Standalone Program (uncompressed)
+```
+
+### Deploy
+
+```bash
+# One-command SD card deployment (auto-package + copy)
+bash boards/amlogic/s905y4_2g/deploy_sd.sh build_s4_shell /dev/sdb1
+
+# Or manually:
+cp build_s4_shell/zephyr/zephyr.uimg /mnt/sdcard/
+sync
+```
+
+### Boot (U-Boot serial console)
+
+```
+fatload mmc 1 0x01000000 zephyr.uimg
+bootm 0x01000000
+```
+
+Serial console: UART_B, 115200, 8N1, GPIOB_0/GPIOB_1.
+
+### Shell commands available after boot
+
+```
+uart:~$ meson_s4_smp          # SMP/PSCI status (4 cores)
+uart:~$ kernel threads        # Thread list
+uart:~$ device list            # Device tree enumeration
+uart:~$ log status             # Logging configuration
+uart:~$ reboot                 # Reboot via PSCI
+```
+
+See `boards/amlogic/s905y4_2g/BOOT.md` for full boot and packaging documentation.
