@@ -201,39 +201,72 @@ Zephyr 配置：
 流控:   None
 ```
 
-## 7. 快速启动脚本
+## 7. 构建与部署
 
-### deploy_sd.sh — 部署到 SD 卡
+### 7.1 构建 hello_world（最小验证）
 
 ```bash
-#!/bin/bash
-set -e
+cd /path/to/zephyrproject
+west build -b s905y4_2g -d build_s4 -s zephyr/samples/hello_world --pristine
+```
 
-BIN_DIR="${1:-build_s4/zephyr}"
-SD_DEV="${2:-/dev/sdb1}"   # SD 卡 FAT 分区设备
-MNT="/mnt/sdcard"
+### 7.2 构建 Shell Console 应用（推荐）
 
-# 编译
-cd /work/zephyr-rtos/zephyrproject
-west build -b s905y4_2g -d build_s4 -s zephyr/samples/hello_world
+Shell Console 包含 SMP 状态检查、内核信息、设备列表等交互式命令：
 
-# 打包 uImage
+```bash
+cd /path/to/zephyrproject
+west build -b s905y4_2g -d build_s4_shell -s app_s4_shell --pristine
+```
+
+> `app_s4_shell` 目录需要放在 zephyrproject 根目录下，包含 `CMakeLists.txt`、`prj.conf` 和 `src/main.c`。
+
+### 7.3 打包 uImage
+
+编译完成后自动生成 `zephyr.bin` 和 `zephyr.uimg`（如果 CMakeLists.txt 的 post-build step 执行）。
+也可手动打包：
+
+```bash
 mkimage -A arm64 -O u-boot -T standalone -C none \
     -a 0x01000000 -e 0x01000000 \
     -n "Zephyr S4 S905Y4" \
     -d build_s4/zephyr/zephyr.bin \
     build_s4/zephyr/zephyr.uimg
+```
 
-# 复制到 SD 卡
-mkdir -p $MNT
-mount $SD_DEV $MNT
-cp build_s4/zephyr/zephyr.uimg $MNT/
+### 7.4 部署到 SD 卡
+
+```bash
+# 方法 1：使用 deploy_sd.sh 脚本（自动打包 + 复制）
+bash boards/amlogic/s905y4_2g/deploy_sd.sh build_s4 /dev/sdb1
+
+# 方法 2：手动复制
+mkdir -p /mnt/sdcard
+mount /dev/sdb1 /mnt/sdcard
+cp build_s4/zephyr/zephyr.uimg /mnt/sdcard/
 sync
-umount $MNT
+umount /mnt/sdcard
+```
 
-echo "部署完成！将 SD 卡插入设备后，在 U-Boot 中执行:"
-echo "  fatload mmc 1 0x01000000 zephyr.uimg"
-echo "  bootm 0x01000000"
+### 7.5 U-Boot 启动命令
+
+```bash
+# 查看可用 MMC 设备
+mmc list
+
+# 从 SD 卡加载（SD 卡通常是 mmc 1）
+fatload mmc 1 0x01000000 zephyr.uimg
+bootm 0x01000000
+
+# 从 eMMC 加载（eMMC 通常是 mmc 0）
+fatload mmc 0 0x01000000 zephyr.uimg
+bootm 0x01000000
+
+# 从 TFTP 加载
+setenv ipaddr 192.168.1.2
+setenv serverip 192.168.1.1
+tftp 0x01000000 zephyr.uimg
+bootm 0x01000000
 ```
 
 ## 8. 与 baremetal_test 的完整对比
@@ -253,3 +286,77 @@ echo "  bootm 0x01000000"
 | 多核 | 不支持 | PSCI SMP 4核 |
 
 两者镜像格式完全相同，U-Boot 启动命令完全相同，仅镜像内容不同（baremetal 是汇编裸机，Zephyr 是完整 RTOS）。
+
+## 9. 功能验证
+
+### 9.1 多核 (SMP) 验证
+
+启动后通过 Shell 检查 CPU 状态：
+
+```
+uart:~$ meson_s4_smp
+SMP: PSCI arm,psci-1.0 smc
+Online CPUs: 4 / 4 (max: 4)
+
+uart:~$ kernel threads
+```
+
+预期：4 个 Cortex-A55 核心全部在线。
+
+### 9.2 eMMC / SD 卡验证
+
+```
+uart:~$ device list
+```
+
+预期输出中应包含 MMC 设备：
+- `SD` — SD 卡（mmc@fe08a000, bus-width=4）
+- `SD2` — eMMC（mmc@fe08c000, bus-width=8）
+
+如果启用文件系统支持（`CONFIG_FILE_SYSTEM` + `CONFIG_FS_FATFS`），可以：
+```
+uart:~$ ls /SD:/
+uart:~$ ls /SD2:/
+```
+
+### 9.3 Ethernet 验证
+
+DTS 已启用 ETH（RMII, internal PHY @ `phy@8`）。如果启用网络栈（`CONFIG_NET_L2_ETHERNET`）：
+
+```
+uart:~$ net iface
+uart:~$ net ping 192.168.1.1
+```
+
+DW MAC 3.70a 的平台 glue（`eth_dwmac_meson_s4.c`）负责时钟/PHY 选择；
+完整 DWMAC 驱动功能需要 Zephyr 主线 `eth_dwmac.c` 支持（当前状态：开发中）。
+
+### 9.4 USB 验证
+
+DTS 已定义 USB host 节点（`generic-xhci @ 0xFDE00000`）。
+Zephyr 的 XHCI 驱动为 `CONFIG_USB_HOST_DRIVER_XHCI`。
+当前状态：DTS 就绪，驱动层待完善。
+
+### 9.5 串口控制台验证
+
+启动后串口应自动出现 Zephyr Shell 提示符 `uart:~$`。
+检查 UART 配置：
+
+```
+uart:~$ device list
+```
+
+应包含 `uart_b` 设备（`amlogic,meson-s4-uart` @ 0xFE07A000）。
+
+## 10. 驱动功能状态汇总
+
+| 模块 | 驱动 | DTS | 配置 | 状态 |
+|------|------|-----|------|------|
+| UART_B | `uart_meson.c` | ✅ | `CONFIG_UART_MESON` | ✅ 已验证 |
+| SD 卡 | `sdhc_meson_axg_mmc.c` | ✅ | `CONFIG_SDHC_MESON_AXG_MMC` | ⚠️ 开发中 |
+| eMMC | `sdhc_meson_axg_mmc.c` | ✅ | `CONFIG_SDHC_MESON_AXG_MMC` | ⚠️ 开发中 |
+| Ethernet | `eth_dwmac_meson_s4.c` | ✅ | `CONFIG_ETH_DWMAC_MESON_S4` | ⚠️ 开发中 |
+| USB XHCI | 无 Zephyr 驱动 | ✅ | DTS only | ❌ 待实现 |
+| SMP / PSCI | Zephyr PSCI | ✅ | `CONFIG_PM_CPU_OPS_PSCI` | ✅ 已验证 |
+| I2C | 无 Zephyr 驱动 | ✅ | DTS only | ❌ 待实现 |
+| Watchdog | 无 Zephyr 驱动 | ✅ | DTS only | ❌ 待实现 |
