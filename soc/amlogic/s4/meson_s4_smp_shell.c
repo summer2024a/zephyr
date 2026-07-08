@@ -8,11 +8,22 @@
 #include <zephyr/arch/cpu.h>
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
+#include <kernel_internal.h>
+
+static bool smp_boot_done;
 
 static int cmd_meson_s4_smp(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
+
+#if defined(CONFIG_SMP_BOOT_DELAY)
+	if (!smp_boot_done) {
+		shell_print(sh, "Booting secondary CPUs (z_smp_init)...");
+		z_smp_init();
+		smp_boot_done = true;
+	}
+#endif
 
 	shell_print(sh, "CONFIG_SMP=%s MP_MAX=%u arch_num_cpus()=%u",
 		    IS_ENABLED(CONFIG_SMP) ? "y" : "n",

@@ -534,11 +534,23 @@ void __weak z_early_rand_get(uint8_t *buf, size_t length)
  *
  * @return Does not return
  */
+#ifdef CONFIG_SOC_AMLOGIC_MESON_S4
+#ifdef CONFIG_SOC_MESON_S4_BOOT_TRACE
+#define S4_BOOT_MARKER(tag) meson_s4_boot_marker(tag)
+#else
+#define S4_BOOT_MARKER(tag) do { } while (0)
+#endif
+#else
+#define S4_BOOT_MARKER(tag) do { } while (0)
+#endif
+
 __boot_func
 FUNC_NO_STACK_PROTECTOR
 FUNC_NORETURN void z_cstart(void)
 {
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4) && defined(CONFIG_SOC_MESON_S4_BOOT_TRACE)
 	extern void meson_s4_boot_marker(char tag);
+#endif
 
 	/* CRITICAL: Flush dcache before kernel initialization.
 	 * Even though U-Boot flushes cache, the UART boot markers output
@@ -551,50 +563,50 @@ FUNC_NORETURN void z_cstart(void)
 	arch_dcache_flush_and_invd_all();
 #endif
 
-	meson_s4_boot_marker('C');  // Cache clean complete
+	S4_BOOT_MARKER('C');
 
 	/* gcov hook needed to get the coverage report.*/
 	gcov_static_init();
-	meson_s4_boot_marker('d');
+	S4_BOOT_MARKER('d');
 
 	/* initialize early init calls */
 	z_sys_init_run_level(INIT_LEVEL_EARLY);
-	meson_s4_boot_marker('e');
+	S4_BOOT_MARKER('e');
 
 	/* perform any architecture-specific initialization */
 	arch_kernel_init();
-	meson_s4_boot_marker('f');  // arch_kernel_init完成
+	S4_BOOT_MARKER('f');
 
 	LOG_CORE_INIT();
-	meson_s4_boot_marker('g');  // LOG_CORE_INIT完成
+	S4_BOOT_MARKER('g');
 
 #if defined(CONFIG_MULTITHREADING)
-	meson_s4_boot_marker('h1'); // 进入multithreading
+	S4_BOOT_MARKER('h');
 	z_dummy_thread_init(&_thread_dummy);
-	meson_s4_boot_marker('h2'); // dummy_thread完成
+	S4_BOOT_MARKER('H');
 #else
-	meson_s4_boot_marker('h0'); // 无multithreading
+	S4_BOOT_MARKER('h');
 #endif /* CONFIG_MULTITHREADING */
 
 	/* do any necessary initialization of static devices */
-	meson_s4_boot_marker('i1'); // 进入device state init
+	S4_BOOT_MARKER('i');
 	z_device_state_init();
-	meson_s4_boot_marker('i2'); // device state完成
+	S4_BOOT_MARKER('I');
 
 	soc_early_init_hook();
-	meson_s4_boot_marker('j'); // soc_early_init完成
+	S4_BOOT_MARKER('j');
 
 	board_early_init_hook();
-	meson_s4_boot_marker('k'); // board_early_init完成
+	S4_BOOT_MARKER('k');
 
 	/* perform basic hardware initialization */
 	z_sys_init_run_level(INIT_LEVEL_PRE_KERNEL_1);
-	meson_s4_boot_marker('l');
+	S4_BOOT_MARKER('l');
 #if defined(CONFIG_SMP)
 	arch_smp_init();
 #endif
 	z_sys_init_run_level(INIT_LEVEL_PRE_KERNEL_2);
-	meson_s4_boot_marker('m');
+	S4_BOOT_MARKER('m');
 
 #ifdef CONFIG_REQUIRES_STACK_CANARIES
 	uintptr_t stack_guard;

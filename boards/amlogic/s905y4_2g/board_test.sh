@@ -203,6 +203,17 @@ analyze_log() {
         log_ok "Zephyr 应用已启动"
     fi
 
+    if grep -aq "Secondary CPU core" "$log_path"; then
+        log_ok "检测到 SMP secondary CPU 上线"
+        grep -a "Secondary CPU core" "$log_path" | tail -3
+    fi
+
+    if grep -aqE 'arch_num_cpus\(\)=4|OK: 4 CPUs online' "$log_path"; then
+        log_ok "SMP 4 核在线"
+    elif grep -aq "meson_s4_smp" "$log_path"; then
+        log_warn "已执行 meson_s4_smp 但未确认 4 核在线"
+    fi
+
     if grep -aq "Starting kernel" "$log_path"; then
         log_warn "检测到 Android 启动 (Starting kernel)"
     fi

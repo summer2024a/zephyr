@@ -226,12 +226,23 @@ static void meson_uart_isr(const struct device *dev)
 }
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4) && defined(CONFIG_UART_INTERRUPT_DRIVEN)
+static void meson_uart_s4_irq_setup(void)
+{
+	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority),
+		    meson_uart_isr, DEVICE_DT_INST_GET(0), 0);
+	irq_enable(DT_INST_IRQN(0));
+}
+#endif
+
 static int meson_uart_init(const struct device *dev)
 {
 	const struct meson_uart_config *cfg = dev->config;
 
 #if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
-	/* Early boot UART already configured; skip register poke at PRE_KERNEL_1 */
+#if defined(CONFIG_UART_INTERRUPT_DRIVEN)
+	meson_uart_s4_irq_setup();
+#endif
 	ARG_UNUSED(cfg);
 	return 0;
 #else

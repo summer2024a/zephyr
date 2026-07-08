@@ -39,6 +39,14 @@ UBOOT_PROMPT = "ap201#"  # 使用更宽松的匹配（完整 prompt 是 s4_ap201
 STOP_MARK = "KEYBOX PART"  # 检测到此标记需要高频发送 Enter
 AUTOBOOT_MARK = "Hit any key to stop autoboot"
 FAIL_MARK = "Starting kernel"  # Android 启动，退出监控
+ZEPHYR_SHELL_MARK = "uart:~"  # Shell 提示符
+ZEPHYR_APP_MARK = "Hello World!"  # hello_world 输出
+
+# Zephyr Shell 验收命令（SMP 延迟启动时由 meson_s4_smp 触发 z_smp_init）
+ZEPHYR_SHELL_CMDS = [
+    "meson_s4_smp",
+    "kernel threads",
+]
 
 # U-Boot 启动命令（TFTP 加载 zephyr.uimg）
 UBOOT_BOOT_CMDS = [
@@ -73,6 +81,7 @@ class SerialMonitor:
         self.stop_mark_seen = False
         self.uboot_ready = False
         self.boot_started = False
+        self.shell_cmds_sent = False
         self.status = "no_uboot"
         
     def open_serial(self):
@@ -223,6 +232,18 @@ class SerialMonitor:
                         if self.check_markers():
                             if self.status == "android":
                                 break
+
+                        # Zephyr 启动后发送 Shell 验收命令
+                        if (self.boot_started and not self.shell_cmds_sent
+                                and self.do_boot):
+                            if (ZEPHYR_SHELL_MARK in data_str
+                                    or ZEPHYR_APP_MARK in data_str):
+                                self.shell_cmds_sent = True
+                                time.sleep(2.0)
+                                for cmd in ZEPHYR_SHELL_CMDS:
+                                    log_msg(f"[MONITOR] Shell: {cmd}")
+                                    self.send_line(cmd)
+                                    time.sleep(3.0)
                             
                         # U-Boot 就绪，执行启动命令
                         if self.uboot_ready and not self.boot_started and self.do_boot:
