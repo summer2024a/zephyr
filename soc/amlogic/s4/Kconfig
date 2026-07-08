@@ -30,6 +30,6 @@ config SOC_MESON_S4_BOOT_TRACE
 config SOC_MESON_S4_SHELL_SMP
 	bool "Shell command meson_s4_smp (SMP status)"
 	depends on SOC_AMLOGIC_MESON_S4 && SHELL
-	default y
+	default n
 	help
 	  Register meson_s4_smp shell command for PSCI / online CPU check.

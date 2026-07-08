@@ -969,21 +969,98 @@ static void enable_mmu_el1(struct arm_mmu_ptables *ptables, unsigned int flags)
 {
 	ARG_UNUSED(flags);
 	uint64_t val;
+	unsigned int line_size;
 
 	/* Set MAIR, TCR and TBBR registers */
 	write_mair_el1(MEMORY_ATTRIBUTES);
 	write_tcr_el1(get_tcr(1));
 	write_ttbr0_el1((uint64_t)ptables->base_xlat_table);
 
-	/* Ensure these changes are seen before MMU is enabled */
-	barrier_isync_fence_full();
+	/*
+	 * CRITICAL: Before enabling MMU, clean+invalidate dcache for the
+	 * memory regions we actually use. This mirrors the Linux kernel
+	 * approach in head.S:
+	 *
+	 *   1. If MMU was OFF on entry: dcache_inval_poc(page_tables)
+	 *   2. If MMU was ON on entry:  dcache_clean_poc(idmap_text)
+	 *
+	 * On S4, BL31/U-Boot may have left dirty dcache lines covering
+	 * our page tables. Without this clean, enabling MMU+dcache
+	 * simultaneously causes the CPU to fetch stale page table data
+	 * from cache instead of RAM, leading to Data Abort.
+	 *
+	 * We use set/way clean+invalidate (PoC) which works regardless
+	 * of whether dcache is currently on or off.
+	 */
+	uint64_t ctr_el0;
+	__asm__ volatile("mrs %0, ctr_el0" : "=r"(ctr_el0));
+	line_size = 4 << ((ctr_el0 >> 16) & 0xf);
 
-	/* Enable the MMU and data cache */
+	/*
+	 * Clean+invalidate dcache by set/way (PoC).
+	 * This is safe with dcache ON or OFF and handles all cache levels.
+	 */
+	uint32_t clidr_el1, csselr_el1, ccsidr_el1;
+	uint8_t loc, ctype, cache_level, way_pos;
+	uint32_t max_ways, max_sets, dc_val, set, way;
+
+	__asm__ volatile("mrs %0, clidr_el1" : "=r"(clidr_el1));
+	loc = (clidr_el1 >> 24) & 7;
+
+	for (cache_level = 0; cache_level < loc; cache_level++) {
+		ctype = (clidr_el1 >> (cache_level * 3)) & 7;
+		if (ctype < 2) {
+			continue;
+		}
+		csselr_el1 = cache_level << 1;
+		__asm__ volatile("msr csselr_el1, %0" : : "r" (csselr_el1));
+		__asm__ volatile("dsb ish; isb");
+
+		__asm__ volatile("mrs %0, ccsidr_el1" : "=r"(ccsidr_el1));
+		max_ways = (ccsidr_el1 >> 3) & 0x7ff;
+		max_sets = ccsidr_el1 & 0x1ffff;
+		way_pos = __builtin_clz(max_ways);
+
+		for (set = 0; set <= max_sets; set++) {
+			for (way = 0; way <= max_ways; way++) {
+				dc_val = (way << way_pos) |
+					 (csselr_el1 | (set << line_size));
+				/* Clean and Invalidate to PoC */
+				__asm__ volatile("dc cisw, %0" : : "r" (dc_val));
+			}
+		}
+	}
+
+	/* Restore CSSelr and barrier */
+	__asm__ volatile("msr csselr_el1, xzr");
+	__asm__ volatile("dsb ish; isb");
+
+	/* Invalidate I-cache to PoU */
+	__asm__ volatile("ic iallu" : : : "memory");
+	__asm__ volatile("dsb ish" : : : "memory");
+	__asm__ volatile("isb" : : : "memory");
+
+	/*
+	 * Now dcache is clean. Enable MMU only (dcache still off).
+	 * This ensures page table walks use fresh RAM data.
+	 */
 	val = read_sctlr_el1();
-	write_sctlr_el1(val | SCTLR_M_BIT | SCTLR_C_BIT);
+	write_sctlr_el1(val | SCTLR_M_BIT);
 
-	/* Ensure the MMU enable takes effect immediately */
-	barrier_isync_fence_full();
+	/* Ensure MMU enable takes effect */
+	__asm__ volatile("dsb ish" : : : "memory");
+	__asm__ volatile("isb" : : : "memory");
+
+	/*
+	 * Now safe to enable dcache — page tables are clean in RAM.
+	 * The MMU is already active, so all accesses go through page tables.
+	 */
+	val = read_sctlr_el1();
+	write_sctlr_el1(val | SCTLR_C_BIT);
+
+	/* Ensure dcache enable takes effect */
+	__asm__ volatile("dsb ish" : : : "memory");
+	__asm__ volatile("isb" : : : "memory");
 
 	MMU_DEBUG("MMU enabled with dcache\n");
 }
