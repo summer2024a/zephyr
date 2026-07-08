@@ -26,6 +26,7 @@
 #include <zephyr/init.h>
 #include <zephyr/linker/linker-defs.h>
 #include <zephyr/platform/hooks.h>
+#include <zephyr/cache.h>  // Cache operations for boot debugging
 #include <ksched.h>
 #include <kthread.h>
 #include <ipi.h>
@@ -537,33 +538,57 @@ __boot_func
 FUNC_NO_STACK_PROTECTOR
 FUNC_NORETURN void z_cstart(void)
 {
+	extern void meson_s4_boot_marker(char tag);
+
+	/* CRITICAL: Flush dcache before kernel initialization.
+	 * Even though U-Boot flushes cache, the UART boot markers output
+	 * creates new dirty cache lines. Must clean before proceeding. */
+	arch_dcache_flush_and_invd_all();
+
+	meson_s4_boot_marker('C');  // Cache clean complete
+
 	/* gcov hook needed to get the coverage report.*/
 	gcov_static_init();
+	meson_s4_boot_marker('d');
 
 	/* initialize early init calls */
 	z_sys_init_run_level(INIT_LEVEL_EARLY);
+	meson_s4_boot_marker('e');
 
 	/* perform any architecture-specific initialization */
 	arch_kernel_init();
+	meson_s4_boot_marker('f');  // arch_kernel_init完成
 
 	LOG_CORE_INIT();
+	meson_s4_boot_marker('g');  // LOG_CORE_INIT完成
 
 #if defined(CONFIG_MULTITHREADING)
+	meson_s4_boot_marker('h1'); // 进入multithreading
 	z_dummy_thread_init(&_thread_dummy);
+	meson_s4_boot_marker('h2'); // dummy_thread完成
+#else
+	meson_s4_boot_marker('h0'); // 无multithreading
 #endif /* CONFIG_MULTITHREADING */
+
 	/* do any necessary initialization of static devices */
+	meson_s4_boot_marker('i1'); // 进入device state init
 	z_device_state_init();
+	meson_s4_boot_marker('i2'); // device state完成
 
 	soc_early_init_hook();
+	meson_s4_boot_marker('j'); // soc_early_init完成
 
 	board_early_init_hook();
+	meson_s4_boot_marker('k'); // board_early_init完成
 
 	/* perform basic hardware initialization */
 	z_sys_init_run_level(INIT_LEVEL_PRE_KERNEL_1);
+	meson_s4_boot_marker('l');
 #if defined(CONFIG_SMP)
 	arch_smp_init();
 #endif
 	z_sys_init_run_level(INIT_LEVEL_PRE_KERNEL_2);
+	meson_s4_boot_marker('m');
 
 #ifdef CONFIG_REQUIRES_STACK_CANARIES
 	uintptr_t stack_guard;

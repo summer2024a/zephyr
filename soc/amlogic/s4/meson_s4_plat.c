@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <zephyr/arch/cpu.h>
+#include <zephyr/arch/cache.h>
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 
@@ -42,11 +43,16 @@ void z_arm64_el1_plat_init(void)
 {
 	uint64_t sctlr;
 
+	/*
+	 * Clear SCTLR_EL1 bits set by z_arm64_el1_init():
+	 *   bit 0 (M) - MMU
+	 *   bit 2 (C) - dcache
+	 *   bit 12 (I) - icache
+	 *   bit 1 (ENDIANNESS)
+	 *   bit 3 (ALIGNMENT_FAULT)
+	 */
 	__asm__ volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
-	/* Clear endianness (bit 1) and stack alignment check (bit 3) */
-	sctlr &= ~((1ULL << 1) | (1ULL << 3));
-	/* Clear MMU enable and cache enable bits — Zephyr will re-enable */
-	sctlr &= ~((1ULL << 0) | (1ULL << 2));
+	sctlr &= ~((1ULL << 0) | (1ULL << 1) | (1ULL << 2) | (1ULL << 3) | (1ULL << 12));
 	__asm__ volatile("msr sctlr_el1, %0" : : "r"(sctlr) : "memory");
 	__asm__ volatile(
 		"dsb	ishst\n"

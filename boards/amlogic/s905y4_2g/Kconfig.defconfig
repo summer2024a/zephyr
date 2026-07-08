@@ -20,8 +20,9 @@ config NUM_IRQS
 config SOC_MESON_S4_BOOT_TRACE
 	default n
 
+# SHELL and SMP shell disabled for minimal single-core boot
 config SOC_MESON_S4_SHELL_SMP
-	default y
+	default n
 
 config SOC_PREP_HOOK
 	default y
@@ -31,15 +32,6 @@ config ARMV8_A_NS
 
 config UART_MESON
 	default y
-
-config SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN
-	default y
-
-config SHELL_THREAD_PRIORITY_OVERRIDE
-	default y
-
-config SHELL_THREAD_PRIORITY
-	default 10
 
 config MAX_XLAT_TABLES
 	default 16

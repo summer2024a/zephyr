@@ -35,21 +35,35 @@ __weak void z_arm64_mm_init(bool is_primary_core) { }
  */
 FUNC_NORETURN void z_prep_c(void)
 {
+	extern void meson_s4_boot_marker(char tag);
+
 	soc_prep_hook();
+	meson_s4_boot_marker('1');
 
 	/* Initialize tpidrro_el0 with our struct _cpu instance address */
 	write_tpidrro_el0((uintptr_t)&_kernel.cpus[0]);
+	meson_s4_boot_marker('2');
 
 	arch_bss_zero();
+	meson_s4_boot_marker('3');
+
 	arch_data_copy();
+	meson_s4_boot_marker('4');
+
 #ifdef CONFIG_ARM64_SAFE_EXCEPTION_STACK
 	/* After bss clean, _kernel.cpus is in bss section */
 	z_arm64_safe_exception_stack_init();
 #endif
+	meson_s4_boot_marker('5');
+
 	z_arm64_mm_init(true);
+	meson_s4_boot_marker('a');
+
 	z_arm64_interrupt_init();
+	meson_s4_boot_marker('b');
 
 	z_cstart();
+	meson_s4_boot_marker('c');
 	CODE_UNREACHABLE;
 }
 

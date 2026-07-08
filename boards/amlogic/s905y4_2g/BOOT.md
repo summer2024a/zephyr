@@ -352,3 +352,114 @@ uart:~$ device list
 | SMP / PSCI | Zephyr PSCI | ✅ | `CONFIG_PM_CPU_OPS_PSCI` | ✅ 已验证 |
 | I2C | 无 Zephyr 驱动 | ✅ | DTS only | ❌ 待实现 |
 | Watchdog | 无 Zephyr 驱动 | ✅ | DTS only | ❌ 待实现 |
+
+## 11. 启动卡住问题调试记录（2026-07-02）
+
+### 11.1 现象
+
+Zephyr 通过 U-Boot `bootm 0x01000000` 加载后，串口输出：
+```
+Zephyr SPL (S4)
+HGgLP
+```
+然后在 `P`（`soc_prep_hook()`）之后完全卡住，无任何进一步输出。
+
+### 11.2 Boot Marker 分析
+
+启用 `CONFIG_SOC_MESON_S4_BOOT_TRACE=y` 后，各 marker 对应���置：
+
+| Marker | 来源文件 | 函数 | 阶段 |
+|--------|---------|------|------|
+| `S` | `meson_s4_boot_debug.S` | reset hook | EL 最高层 |
+| `H` | `meson_s4_plat.c` | `z_arm64_el_highest_plat_init()` | 定时器设置 |
+| `G`/`g` | `meson_s4_plat.c` | `z_arm64_el2_plat_init()` | EL2 平台初始化 |
+| `L` | `meson_s4_plat.c` | `z_arm64_el1_plat_init()` | 清除 SCTLR.C/M |
+| `P` | `meson_s4_plat.c` | `soc_prep_hook()` | 准备 C 运行环境 |
+| `1`~`4` | `prep_c.c` | `z_prep_c()` | .bss/.data 初始化 |
+| `A`~`D`/`a`~`g` | `mmu.c`/`prep_c.c` | MMU init | 页表建立 |
+| `5`/`6`/`i`/`z`/`Z` | `prep_c.c` | interrupt/z_cstart | 中断/内核初始化 |
+| `M`/`I`/`C`/`K` | `init.c` | SYS_INIT levels | 驱动初始化 |
+
+### 11.3 调试过程
+
+#### 尝试 1: dcache clean 修复
+**假设**：BL31/U-Boot 有 dirty dcache lines，MMU 开启后读到错误页表。
+**修改**：在 `enable_mmu_el1()` 中添加 dcache clean/invalidate。
+**结果**：无效。日志仍停在 `4` 或 `a`。
+
+#### 尝试 2: 投票锁 .bss 清零
+**假设**：`arm64_cpu_boot_params.voting[]` 在 .bss 清零前有垃圾数据，导致主核无限等待其他核投票。
+**修改**：在 `reset.S` 投票锁之前手动清零 `voting[]` 数组。
+**结果**：部分有效。SMP 时从 `LP` 变为 `HGgLP`，但单核���仍然停在 `P`。
+
+#### 尝试 3: 禁用 SMP 隔离问题
+**修改**：`CONFIG_SMP=n`。
+**结果**：marker 序列变为 `pP1234a`，说明 MMU 初始化成功（`a` 在 `z_arm64_mm_init()` 之后），但 `z_arm64_interrupt_init()` 返回后卡住。
+
+### 11.4 根因分析
+
+**最终 marker 序列**（SMP 禁用 + 详细 marker）：
+```
+pP1234a
+```
+- `p` = U-Boot autoboot Enter 误识别
+- `P` = `soc_prep_hook()` ✓
+- `1` = after `soc_prep_hook()` ✓
+- `2` = after `write_tpidrro_el0()` ✓
+- `3` = after `arch_bss_zero()` ✓
+- `4` = after `arch_data_copy()` ✓
+- `a` = after `z_arm64_mm_init(true)` ✓
+- **卡住** = `z_arm64_interrupt_init()` 返回后
+
+**关键发现**：
+1. `z_arm64_mm_init()` 成功返回（`a` marker 输出），MMU 已开启，dcache 已开启
+2. `z_arm64_interrupt_init()` 是空函数（无 `CONFIG_ARM_CUSTOM_INTERRUPT_CONTROLLER`）
+3. 卡住发生在 `z_arm64_interrupt_init()` 返回后、`meson_s4_boot_marker('5')` 之前
+4. `meson_s4_boot_marker('5')` 需要访问 UART 寄存器 `0xFE07A000`
+
+**最可能的根因**：
+- MMU 开启后，`meson_s4_boot_marker` 函数通过 MMU 访问 UART 寄存器
+- UART 寄存器 `0xFE07A000` 在 APB4 映射中（`0xFE000000, 0x480000, MT_DEVICE_nGnRnE`）
+- 但 dcache 中有来自 BL31 的 dirty data，在 MMU+dcache 同时开启后，页表遍历可能读到 stale cache lines
+- 导致 Data Abort 或访问未映射地址
+
+**为什么 `G` 和 `P` 能输出但 `5` 不能**：
+- `G` 在 EL2 上输出（dcache 可能未开启或干净）
+- `P` 在 `soc_prep_hook()` 中输出（此时 dcache 已被 `z_arm64_el1_plat_init()` 关闭）
+- `5` 在 MMU+dcache 开启后输出（此时 dcache 可能有 dirty data）
+
+### 11.5 待验证的修复方案
+
+1. **在 `enable_mmu_el1()` 中分步开启 MMU 和 dcache**：
+   - 先开启 MMU（关 dcache）→ 确保页表遍历使用 RAM 数据
+   - 再开启 dcache → 此时页表已在 RAM 中且干净
+
+2. **在 `z_arm64_el1_plat_init()` 中清除 SCTLR.C 之前做 dcache clean**：
+   - 使用 set/way clean+invalidate（不依赖 dcache 状态）
+   - 确保 BL31 的 dirty data 被写回 RAM
+
+3. **临时方案：禁用 dcache 直到所有驱动初始化完成**：
+   - 在 `enable_mmu_el1()` 中只开启 MMU，不开 dcache
+   - 在 `z_cstart()` 之后手动开启 dcache
+   - 类似 Linux 内核的做法
+
+### 11.6 下一步调试方向
+
+1. **启用 `CONFIG_ARM64_BOOT_DISABLE_DCACHE=y`**：让 Zephyr 框架自动处理 dcache
+2. **在 `enable_mmu_el1()` 中分步开启 MMU 和 dcache**（方案 1）
+3. **添加 Data Abort handler** 来捕获具体的 fault address 和 ESR
+4. **参考 Linux S4 启动代码**：`arch/arm64/kernel/head.S` 中的 `__enable_mmu` 流程
+5. **禁用 CONFIG_LOG 和 printk** 排除日志子系统初始化问题
+
+### 11.7 关键文件清单
+
+| 文件 | 作用 |
+|------|------|
+| `arch/arm64/core/reset.S` | 汇编入口、投票锁、EL 切换 |
+| `arch/arm64/core/prep_c.c` | C 运行环境准备 |
+| `arch/arm64/core/mmu.c` | MMU 页表建立和使能 |
+| `soc/amlogic/s4/meson_s4_plat.c` | 平台初始化（EL2/EL1） |
+| `soc/amlogic/s4/meson_s4_early_uart.c` | 早期 UART 输出（boot marker） |
+| `soc/amlogic/s4/mmu_regions.c` | 外设 MMU 映射 |
+| `arch/arm64/core/irq_init.c` | 中断初始化 |
+| `kernel/init.c` | 内核初始化（z_cstart） |
