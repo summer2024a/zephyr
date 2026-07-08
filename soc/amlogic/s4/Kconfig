@@ -12,6 +12,7 @@ config SOC_AMLOGIC_MESON_S4
 	select GIC_V2
 	select TIMER_ARMv8_CNTVCT
 	select SYS_CLOCK_EXISTS
+	select SOC_PER_CORE_INIT_HOOK if SMP
 	help
 	  Amlogic Meson S4 (S905W2/S905Y4) ARM64 SoC (4 Cortex-A55 cores).
 

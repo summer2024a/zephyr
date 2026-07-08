@@ -10,6 +10,7 @@
 #include <zephyr/arch/cache.h>
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
+#include <zephyr/platform/hooks.h>
 
 void meson_s4_boot_marker(char tag);
 
@@ -109,3 +110,15 @@ static int meson_s4_post_kernel_checkpoint(void)
 }
 
 SYS_INIT(meson_s4_post_kernel_checkpoint, POST_KERNEL, 0);
+
+#if defined(CONFIG_SMP)
+/*
+ * Secondary CPU hook: S4 defers dcache in enable_mmu_el1(); from-core must
+ * enable dcache before clearing arm64_cpu_boot_params.fn, or primary wfe()
+ * may never observe the NULL store.
+ */
+void soc_per_core_init_hook(void)
+{
+	meson_s4_enable_dcache_el1();
+}
+#endif

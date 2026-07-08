@@ -206,5 +206,6 @@ PRE_KERNEL_1 中 PSCI_VERSION SMC 可能导致早期 hang。
 - **SECMON** `0x05000000~0x08200000`：须避开
 - **dcache**：EL2/EL1/MMU/z_cstart 分层维护，先 MMU 后 dcache
 - **UART PRE_KERNEL_1**：不走 k_mem_map_phys_bare，不 poke 寄存器
+- **SMP**：见 [smp_psci_boot.md](smp_psci_boot.md)；从核须 `meson_s4_enable_dcache_el1()` 后再清 boot_params
 - **串口**：UART_B @ `0xFE07A000`，921600
 - **load 地址**：`0x01000000`（= BL33 NS_BL33_ENTRYPOINT）
