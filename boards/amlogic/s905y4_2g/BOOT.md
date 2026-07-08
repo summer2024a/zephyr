@@ -443,15 +443,17 @@ pP1234a
    - 在 `z_cstart()` 之后手动开启 dcache
    - 类似 Linux 内核的做法
 
-### 11.6 下一步调试方向
+### 11.8 最终修复（2026-07-08）
 
-1. **启用 `CONFIG_ARM64_BOOT_DISABLE_DCACHE=y`**：让 Zephyr 框架自动处理 dcache
-2. **在 `enable_mmu_el1()` 中分步开启 MMU 和 dcache**（方案 1）
-3. **添加 Data Abort handler** 来捕获具体的 fault address 和 ESR
-4. **参考 Linux S4 启动代码**：`arch/arm64/kernel/head.S` 中的 `__enable_mmu` 流程
-5. **禁用 CONFIG_LOG 和 printk** 排除日志子系统初始化问题
+根因与完整记录见 [doc/porting_issues.md](doc/porting_issues.md)。简要结论：
 
-### 11.7 关键文件清单
+1. **UART TX_EMPTY 等待**（`meson_s4_early_uart.c`）— 主因
+2. **分层 cache 维护** — EL2 disable、EL1 flush、MMU 使能前 flush、z_cstart flush
+3. **PRE_KERNEL_1 UART skip init** — 见 [doc/porting_issues.md § UART](doc/porting_issues.md)
+
+BL33 跳转分析：[doc/bl33_to_zephyr.md](doc/bl33_to_zephyr.md)  
+启动流程：[doc/zephyr_boot_flow.md](doc/zephyr_boot_flow.md)  
+自动化测试：`./board_test.sh boot`（见 [Test_env.md](Test_env.md)）。
 
 | 文件 | 作用 |
 |------|------|

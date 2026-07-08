@@ -40,11 +40,11 @@ STOP_MARK = "KEYBOX PART"  # 检测到此标记需要高频发送 Enter
 AUTOBOOT_MARK = "Hit any key to stop autoboot"
 FAIL_MARK = "Starting kernel"  # Android 启动，退出监控
 
-# U-Boot 启动命令（使用zephyr_final.uimg - 最终干净版本）
+# U-Boot 启动命令（TFTP 加载 zephyr.uimg）
 UBOOT_BOOT_CMDS = [
     "setenv serverip 192.168.53.142",
     "setenv ipaddr 192.168.53.130",
-    "setenv loadkernel tftpboot 0x01000000 zephyr_final.uimg",
+    "setenv loadkernel tftpboot 0x01000000 zephyr.uimg",
     'setenv uenvcmd "run loadkernel; bootm 0x01000000"',
     "run uenvcmd",
 ]
@@ -248,16 +248,22 @@ class SerialMonitor:
             
         finally:
             self.close_serial()
-            
+
             # 关闭日志文件
             if self.log_fp:
                 self.log_fp.close()
-                print(f"Log saved to {self.log_file} ({len(self.log_data)} bytes)")
-                
+
+            byte_count = len(self.log_data)
+            if byte_count > 0:
+                print(f"Log saved to {self.log_file} ({byte_count} bytes)")
+
             # 备用：如果有数据但文件未打开，写入文件
             if self.log_data and not self.log_fp:
                 Path(self.log_file).write_bytes(self.log_data)
-                print(f"Log saved to {self.log_file} ({len(self.log_data)} bytes)")
+                print(f"Log saved to {self.log_file} ({byte_count} bytes)")
+
+            print(f"CAPTURE_DONE status={self.status} bytes={byte_count}")
+            sys.stdout.flush()
                 
 def main():
     parser = argparse.ArgumentParser(description="Amlogic S4 串口监控")

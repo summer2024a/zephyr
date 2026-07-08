@@ -596,11 +596,24 @@ static void uart_console_hook_install(void)
  */
 static int uart_console_init(void)
 {
+#ifdef CONFIG_SOC_MESON_S4_BOOT_TRACE
+	extern void meson_s4_boot_marker(char tag);
+
+	meson_s4_boot_marker('v');
+#endif
+
 	if (!device_is_ready(uart_console_dev)) {
+#ifdef CONFIG_SOC_MESON_S4_BOOT_TRACE
+		meson_s4_boot_marker('!');
+#endif
 		return -ENODEV;
 	}
 
 	uart_console_hook_install();
+
+#ifdef CONFIG_SOC_MESON_S4_BOOT_TRACE
+	meson_s4_boot_marker('w');
+#endif
 
 	return 0;
 }

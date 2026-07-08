@@ -117,4 +117,6 @@ uart:~$ log status             # Logging configuration
 uart:~$ reboot                 # Reboot via PSCI
 ```
 
-See `boards/amlogic/s905y4_2g/BOOT.md` for full boot and packaging documentation.
+See `boards/amlogic/s905y4_2g/BOOT.md` for boot and packaging.
+See `boards/amlogic/s905y4_2g/doc/` for debug, BL33 jump, boot flow, and porting issues.
+See `boards/amlogic/s905y4_2g/Test_env.md` for hardware test environment.

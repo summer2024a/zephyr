@@ -17,6 +17,7 @@
 #include <kernel_internal.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/arch/arm64/cpu.h>
+#include <zephyr/arch/cache.h>
 #include <zephyr/arch/arm64/lib_helpers.h>
 #include <zephyr/arch/arm64/mm.h>
 #include <zephyr/linker/linker-defs.h>
@@ -28,6 +29,13 @@
 #include "paging.h"
 
 LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
+
+#ifdef CONFIG_SOC_MESON_S4_BOOT_TRACE
+extern void meson_s4_boot_marker(char tag);
+#define S4_MMU_MARKER(tag) meson_s4_boot_marker(tag)
+#else
+#define S4_MMU_MARKER(tag)
+#endif
 
 static uint64_t xlat_tables[CONFIG_MAX_XLAT_TABLES * Ln_XLAT_NUM_ENTRIES]
 		__aligned(Ln_XLAT_NUM_ENTRIES * sizeof(uint64_t));
@@ -969,12 +977,27 @@ static void enable_mmu_el1(struct arm_mmu_ptables *ptables, unsigned int flags)
 {
 	ARG_UNUSED(flags);
 	uint64_t val;
+#if !defined(CONFIG_SOC_AMLOGIC_MESON_S4)
 	unsigned int line_size;
+#endif
 
 	/* Set MAIR, TCR and TBBR registers */
 	write_mair_el1(MEMORY_ATTRIBUTES);
+#ifdef CONFIG_SOC_AMLOGIC_MESON_S4
+	{
+		uint64_t tcr = get_tcr(1);
+
+		/* Non-cacheable page table walk — avoids stale PTW lines on S4 */
+		tcr &= ~(TCR_IRGN_MASK | TCR_ORGN_MASK);
+		tcr |= TCR_IRGN_NC | TCR_ORGN_NC;
+		write_tcr_el1(tcr);
+	}
+#else
 	write_tcr_el1(get_tcr(1));
+#endif
 	write_ttbr0_el1((uint64_t)ptables->base_xlat_table);
+
+	S4_MMU_MARKER('C');
 
 	/*
 	 * CRITICAL: Before enabling MMU, clean+invalidate dcache for the
@@ -992,6 +1015,9 @@ static void enable_mmu_el1(struct arm_mmu_ptables *ptables, unsigned int flags)
 	 * We use set/way clean+invalidate (PoC) which works regardless
 	 * of whether dcache is currently on or off.
 	 */
+#ifdef CONFIG_SOC_AMLOGIC_MESON_S4
+	arch_dcache_flush_and_invd_all();
+#else
 	uint64_t ctr_el0;
 	__asm__ volatile("mrs %0, ctr_el0" : "=r"(ctr_el0));
 	line_size = 4 << ((ctr_el0 >> 16) & 0xf);
@@ -1033,7 +1059,11 @@ static void enable_mmu_el1(struct arm_mmu_ptables *ptables, unsigned int flags)
 
 	/* Restore CSSelr and barrier */
 	__asm__ volatile("msr csselr_el1, xzr");
+#endif
+
 	__asm__ volatile("dsb ish; isb");
+
+	S4_MMU_MARKER('D');
 
 	/* Invalidate I-cache to PoU */
 	__asm__ volatile("ic iallu" : : : "memory");
@@ -1051,6 +1081,9 @@ static void enable_mmu_el1(struct arm_mmu_ptables *ptables, unsigned int flags)
 	__asm__ volatile("dsb ish" : : : "memory");
 	__asm__ volatile("isb" : : : "memory");
 
+	S4_MMU_MARKER('E');
+
+#ifndef CONFIG_SOC_AMLOGIC_MESON_S4
 	/*
 	 * Now safe to enable dcache — page tables are clean in RAM.
 	 * The MMU is already active, so all accesses go through page tables.
@@ -1061,6 +1094,12 @@ static void enable_mmu_el1(struct arm_mmu_ptables *ptables, unsigned int flags)
 	/* Ensure dcache enable takes effect */
 	__asm__ volatile("dsb ish" : : : "memory");
 	__asm__ volatile("isb" : : : "memory");
+
+	S4_MMU_MARKER('F');
+#else
+	/* S4: defer dcache to z_cstart() after another flush */
+	S4_MMU_MARKER('G');
+#endif
 
 	MMU_DEBUG("MMU enabled with dcache\n");
 }
@@ -1092,6 +1131,8 @@ void z_arm64_mm_init(bool is_primary_core)
 {
 	unsigned int flags = 0U;
 
+	S4_MMU_MARKER('A');
+
 	__ASSERT(CONFIG_MMU_PAGE_SIZE == KB(4),
 		 "Only 4K page size is supported\n");
 
@@ -1107,6 +1148,7 @@ void z_arm64_mm_init(bool is_primary_core)
 	if (is_primary_core) {
 		kernel_ptables.base_xlat_table = new_table();
 		setup_page_tables(&kernel_ptables);
+		S4_MMU_MARKER('B');
 	}
 
 	/* currently only EL1 is supported */

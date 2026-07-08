@@ -44,12 +44,24 @@ void z_arm64_el1_plat_init(void)
 	uint64_t sctlr;
 
 	/*
+	 * Clean+invalidate dcache BEFORE clearing SCTLR.C.
+	 *
+	 * BL31/U-Boot may leave dirty lines; prep_c boot markers also
+	 * dirty RAM. Must flush while dcache is still on, then safe to
+	 * disable C/M and invalidate TLB before MMU re-init.
+	 */
+	arch_dcache_flush_and_invd_all();
+	__asm__ volatile("dsb ish; isb" : : : "memory");
+
+	/*
 	 * Clear SCTLR_EL1 bits set by z_arm64_el1_init():
 	 *   bit 0 (M) - MMU
 	 *   bit 2 (C) - dcache
 	 *   bit 12 (I) - icache
 	 *   bit 1 (ENDIANNESS)
 	 *   bit 3 (ALIGNMENT_FAULT)
+	 *
+	 * Now safe to clear C since dcache is clean.
 	 */
 	__asm__ volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
 	sctlr &= ~((1ULL << 0) | (1ULL << 1) | (1ULL << 2) | (1ULL << 3) | (1ULL << 12));
@@ -70,6 +82,25 @@ void soc_prep_hook(void)
 	meson_s4_boot_marker('P');
 }
 #endif
+
+/*
+ * Enable EL1 dcache after MMU is active (S4 defers dcache from enable_mmu_el1).
+ * Flush first so page tables and early boot data are coherent in RAM.
+ */
+void meson_s4_enable_dcache_el1(void)
+{
+	uint64_t sctlr;
+
+	arch_dcache_flush_and_invd_all();
+	__asm__ volatile("dsb ish; isb" : : : "memory");
+
+	__asm__ volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
+	if ((sctlr & (1ULL << 2)) == 0U) {
+		sctlr |= (1ULL << 2);
+		__asm__ volatile("msr sctlr_el1, %0" : : "r"(sctlr) : "memory");
+		__asm__ volatile("dsb ish; isb" : : : "memory");
+	}
+}
 
 static int meson_s4_post_kernel_checkpoint(void)
 {

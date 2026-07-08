@@ -65,6 +65,21 @@ struct meson_uart_data {
 #endif
 };
 
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+#define S4_UART_B_PHYS           0xFE07A000U
+
+static uint32_t meson_uart_read(const struct device *dev, uint32_t offset)
+{
+	ARG_UNUSED(dev);
+	return sys_read32(S4_UART_B_PHYS + offset);
+}
+
+static void meson_uart_write(const struct device *dev, uint32_t offset, uint32_t value)
+{
+	ARG_UNUSED(dev);
+	sys_write32(value, S4_UART_B_PHYS + offset);
+}
+#else
 static inline uint32_t meson_uart_read(const struct device *dev, uint32_t offset)
 {
 	return sys_read32(DEVICE_MMIO_GET(dev) + offset);
@@ -74,6 +89,7 @@ static inline void meson_uart_write(const struct device *dev, uint32_t offset, u
 {
 	sys_write32(value, DEVICE_MMIO_GET(dev) + offset);
 }
+#endif
 
 static int meson_uart_poll_in(const struct device *dev, unsigned char *p_char)
 {
@@ -98,6 +114,11 @@ static void meson_uart_poll_out(const struct device *dev, unsigned char out_char
 	} while (status & TX_FULL);
 
 	meson_uart_write(dev, UART_WFIFO, (uint32_t)out_char);
+
+	/* Wait for TX_EMPTY — same fix as early boot UART on S4 */
+	do {
+		status = meson_uart_read(dev, UART_STATUS);
+	} while ((status & TX_EMPTY) == 0U);
 }
 
 static int meson_uart_err_check(const struct device *dev)
@@ -207,8 +228,14 @@ static void meson_uart_isr(const struct device *dev)
 
 static int meson_uart_init(const struct device *dev)
 {
-	uint32_t ctrl;
 	const struct meson_uart_config *cfg = dev->config;
+
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+	/* Early boot UART already configured; skip register poke at PRE_KERNEL_1 */
+	ARG_UNUSED(cfg);
+	return 0;
+#else
+	uint32_t ctrl;
 
 	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
 
@@ -217,19 +244,12 @@ static int meson_uart_init(const struct device *dev)
 	ctrl |= UART_INIT_MASK;
 	meson_uart_write(dev, UART_CONTROL, ctrl);
 
-	/* Pulse bits auto-clear; clear reset/error bits explicitly */
 	ctrl &= ~(TX_RST | RX_RST | CLR_ERR);
 	meson_uart_write(dev, UART_CONTROL, ctrl);
 
-	/* Enable TX and RX */
 	ctrl |= (TX_EN | RX_EN);
 	meson_uart_write(dev, UART_CONTROL, ctrl);
 
-	/* Configure baud rate using REG5 (S4 new rate mode)
-	 * baud = xtal_clk / (xtal_div * 8 * (reg5_baud + 1))
-	 * For 115200 from 24MHz: xtal_div=1, reg5_baud = 24000000/(8*115200) - 1 = 25
-	 * actual baud ≈ 24000000/(8*26) = 115384
-	 */
 	if (cfg->baud_rate > 0 && cfg->clock_freq > 0) {
 		uint32_t xtal_div = 1;
 		uint32_t divisor = cfg->clock_freq / (xtal_div * 8U * cfg->baud_rate);
@@ -242,10 +262,12 @@ static int meson_uart_init(const struct device *dev)
 				    (divisor & 0xFFFF) |
 				    REG5_USE_NEW_RATE |
 				    REG5_USE_XTAL_CLK;
+
 		meson_uart_write(dev, UART_REG5, reg5_val);
 	}
 
 	return 0;
+#endif
 }
 
 static const struct uart_driver_api meson_uart_driver_api = {

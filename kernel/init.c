@@ -543,7 +543,13 @@ FUNC_NORETURN void z_cstart(void)
 	/* CRITICAL: Flush dcache before kernel initialization.
 	 * Even though U-Boot flushes cache, the UART boot markers output
 	 * creates new dirty cache lines. Must clean before proceeding. */
+#ifdef CONFIG_SOC_AMLOGIC_MESON_S4
+	extern void meson_s4_enable_dcache_el1(void);
+
+	meson_s4_enable_dcache_el1();
+#else
 	arch_dcache_flush_and_invd_all();
+#endif
 
 	meson_s4_boot_marker('C');  // Cache clean complete
 
