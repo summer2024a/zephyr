@@ -33,7 +33,7 @@ RESET_SCRIPT="/home/lynxi/usb_power/amlogic_s4_reset.sh"
 TFTP_DIR="/data/work/tftpboot"
 UIMG_REMOTE="zephyr.uimg"
 
-SCRIPT_DIR="$ZEPHYR_PROJECT/zephyr/boards/amlogic/s905y4_2g"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ZEPHYR_PROJECT="/work/zephyr-rtos/zephyrproject"
 ZEPHYR_BASE="$ZEPHYR_PROJECT"
@@ -42,8 +42,8 @@ BUILD_DIR="build_s4_shell"
 UIMG_LOCAL="$ZEPHYR_PROJECT/$BUILD_DIR/zephyr/zephyr.uimg"
 REMOTE_SCRIPT_DIR="/mnt/49.20/zephyr-rtos/zephyrproject/zephyr/boards/amlogic/s905y4_2g"
 
-# 日志文件（85 上）
-LOG_FILE="/tmp/s4_boot_$(date +%Y%m%d_%H%M%S).log"
+# 日志文件（85 上，每次 monitor 启动刷新）
+LOG_FILE=""
 CTL_LOG="/tmp/s4_monitor_ctl.log"
 READY_FILE="/tmp/s4_monitor_ready.txt"
 MONITOR_STDOUT="/tmp/s4_monitor_stdout.log"
@@ -76,11 +76,44 @@ check_sshpass() {
     fi
 }
 
+# OVERLAY: irq-rx | poll-uart | (empty = defconfig irq-full + SMP)
+#   (empty)    — defconfig: Shell TX/RX 全中断 + SMP 4 核
+#   irq-rx     — Shell RX 中断 + TX 轮询
+#   poll-uart  — Shell 全轮询
+resolve_build_cmake_args() {
+    local args="${EXTRA_CMAKE_ARGS:-}"
+    if [ -n "${OVERLAY:-}" ]; then
+        local conf="$SCRIPT_DIR/overlay-${OVERLAY}.conf"
+        if [ ! -f "$conf" ]; then
+            log_err "未知 OVERLAY=${OVERLAY}，缺少 $conf"
+            log_info "可用: irq-rx, poll-uart"
+            exit 1
+        fi
+        log_info "OVERLAY=${OVERLAY} → $conf"
+        local overlay_arg="-DEXTRA_CONF_FILE=$conf"
+        if [ -n "$args" ]; then
+            args="$args $overlay_arg"
+        else
+            args="$overlay_arg"
+        fi
+    fi
+    echo "$args"
+}
+
 build_image() {
     log_info "编译 Zephyr 镜像 ($BOARD)..."
     cd "$ZEPHYR_PROJECT"
     source zephyr/zephyr-env.sh
-    west build -b "$BOARD" -d "$BUILD_DIR" -s zephyr/samples/hello_world --pristine
+    local extra_args
+    extra_args=$(resolve_build_cmake_args)
+    if [ -n "$extra_args" ]; then
+        log_info "CMake extra: $extra_args"
+        # shellcheck disable=SC2086
+        west build -b "$BOARD" -d "$BUILD_DIR" -s zephyr/samples/hello_world --pristine -- \
+            $extra_args
+    else
+        west build -b "$BOARD" -d "$BUILD_DIR" -s zephyr/samples/hello_world --pristine
+    fi
     log_ok "编译完成: $UIMG_LOCAL"
     ls -lh "$UIMG_LOCAL"
 }
@@ -111,8 +144,15 @@ start_monitor_bg() {
     local duration="${1:-80}"
     local post_boot="${2:-20}"
     local no_boot="${3:-}"
+    local shell_cmds="${ZEPHYR_SHELL_CMDS:-help,kernel uptime,kernel uptime,kernel version,meson_s4_gic}"
 
+    LOG_FILE="/tmp/s4_boot_$(date +%Y%m%d_%H%M%S).log"
     cleanup_monitor
+
+    # 同步监控脚本到串口服务器（85 上路径见 REMOTE_SCRIPT_DIR）
+    sshpass -p "$SERIAL_PASS" scp -o StrictHostKeyChecking=no \
+        "$SCRIPT_DIR/remote_serial_test.py" \
+        "$SERIAL_USER@$SERIAL_HOST:$REMOTE_SCRIPT_DIR/remote_serial_test.py" 2>/dev/null || true
 
     local no_boot_flag=""
     if [ "$no_boot" = "--no-boot" ]; then
@@ -124,7 +164,8 @@ start_monitor_bg() {
 
     ssh_serial "echo '$SERIAL_PASS' | sudo -S -p '' bash -c '
         cd \"$REMOTE_SCRIPT_DIR\" || exit 1
-        nohup python3 remote_serial_test.py \
+        printf \"%s\" \"$shell_cmds\" > /tmp/s4_shell_cmds.txt
+        nohup env ZEPHYR_SHELL_CMDS=\"\$(cat /tmp/s4_shell_cmds.txt)\" python3 remote_serial_test.py \
             --dev \"$SERIAL_DEV\" --baud $SERIAL_BAUD \
             --log \"$LOG_FILE\" \
             --boot-wait $duration --post-boot $post_boot \
@@ -203,15 +244,74 @@ analyze_log() {
         log_ok "Zephyr 应用已启动"
     fi
 
+    if grep -aqE 'smp: start cpu|smp: secondary|Secondary CPU core' "$log_path"; then
+        log_info "SMP trace:"
+        grep -aE 'smp: start cpu|smp: secondary|Secondary CPU core' "$log_path" | tail -10
+    fi
+
+    # SMP boot trace markers: Q+=9 primary, <>{>~! secondary
+    if grep -aqE '[Q+=9<>{}~!]' "$log_path"; then
+        local smp_markers
+        smp_markers=$(grep -ao 'HGgLP[0-9A-Za-z<>{}~!+=9Q]*' "$log_path" 2>/dev/null | tail -1 || true)
+        if [ -n "$smp_markers" ]; then
+            log_info "SMP markers tail: ${smp_markers: -40}"
+        fi
+    fi
+
     if grep -aq "Secondary CPU core" "$log_path"; then
         log_ok "检测到 SMP secondary CPU 上线"
         grep -a "Secondary CPU core" "$log_path" | tail -3
     fi
 
-    if grep -aqE 'arch_num_cpus\(\)=4|OK: 4 CPUs online' "$log_path"; then
+    if grep -aqE 'arch_num_cpus\(\)=4|OK: 4 CPUs online|z_smp_init returned, arch_num_cpus\(\)=4' "$log_path"; then
         log_ok "SMP 4 核在线"
+        grep -aE 'arch_num_cpus\(\)=4|OK: 4 CPUs online|z_smp_init returned|Secondary CPU core' "$log_path" | tail -5
+    elif grep -aq "deferred z_smp_init done" "$log_path"; then
+        log_ok "SMP defer init 完成"
+        grep -a "deferred z_smp_init" "$log_path" | tail -2
     elif grep -aq "meson_s4_smp" "$log_path"; then
         log_warn "已执行 meson_s4_smp 但未确认 4 核在线"
+    fi
+
+    if grep -aqE 'uart:\~\$|uart:~ ' "$log_path"; then
+        log_ok "Shell 提示符已出现"
+    fi
+
+    if grep -aqE 'Please press the <Tab>|Available commands:' "$log_path"; then
+        log_ok "Shell help 有回显"
+    fi
+
+    if grep -aqE 'Kernel version:|Zephyr version' "$log_path"; then
+        log_ok "Shell kernel version 有回显"
+    fi
+
+    # Tick / Arch Timer via kernel uptime (two samples should increase)
+    local uptime_vals
+    uptime_vals=$(grep -aoE 'Uptime: [0-9]+ ms' "$log_path" 2>/dev/null | grep -oE '[0-9]+' || true)
+    if [ -n "$uptime_vals" ]; then
+        local u1 u2
+        u1=$(echo "$uptime_vals" | sed -n '1p')
+        u2=$(echo "$uptime_vals" | sed -n '2p')
+        log_info "kernel uptime: 1st=${u1:-?}ms 2nd=${u2:-?}ms"
+        if [ -n "$u1" ] && [ -n "$u2" ] && [ "$u2" -gt "$u1" ]; then
+            log_ok "Tick 正常增长 (Arch Timer/GIC PPI, +$((u2 - u1)) ms)"
+        elif [ -n "$u1" ]; then
+            log_warn "仅一次 uptime 或第二次未增长 (GIC/tick 待查)"
+        fi
+    fi
+
+    if grep -aqE 'meson_uart_isr_count=[1-9]' "$log_path"; then
+        log_ok "UART ISR 有触发 (irq-full/irq-rx)"
+        grep -a 'meson_uart_isr_count=' "$log_path" | tail -3
+    fi
+
+    if grep -aqE 'zephyr_irq=201' "$log_path"; then
+        log_ok "meson_s4_gic: SPI 201 诊断已输出"
+    fi
+
+    if grep -aqE 'cycles: [0-9]+ hw cycles' "$log_path"; then
+        log_ok "kernel cycles 有回显 (hw cycle counter)"
+        grep -aoE 'cycles: [0-9]+ hw cycles' "$log_path" | head -1
     fi
 
     if grep -aq "Starting kernel" "$log_path"; then
@@ -270,7 +370,34 @@ full_boot() {
     log_info "========== 完整调试流程 =========="
     build_image
     deploy_image
-    dual_thread_boot "" "80" "30"
+    dual_thread_boot "" "80" "${POST_BOOT_SEC:-55}"
+}
+
+stability_boot() {
+    local runs="${STABILITY_RUNS:-3}"
+    export ZEPHYR_SHELL_CMDS="help,kernel uptime,kernel uptime,kernel version,meson_s4_gic"
+    log_info "========== 稳定性测试 (${runs} 次启动, defconfig irq-full+SMP) =========="
+    build_image
+    deploy_image
+    local i pass=0 fail=0
+    for i in $(seq 1 "$runs"); do
+        log_info "---------- Run $i/$runs ----------"
+        dual_thread_boot "" "80" "${POST_BOOT_SEC:-55}" || { fail=$((fail + 1)); continue; }
+        local local_log
+        local_log=$(fetch_log)
+        if [ -n "$local_log" ] && grep -aqE 'OK: 4 CPUs online|arch_num_cpus\(\)=4|z_smp_init returned, arch_num_cpus\(\)=4' "$local_log" \
+            && grep -aqE 'uart:\~\$|uart:~ ' "$local_log" \
+            && grep -aqE 'Please press the <Tab>|Available commands:' "$local_log"; then
+            pass=$((pass + 1))
+            log_ok "Run $i: PASS"
+        else
+            fail=$((fail + 1))
+            log_warn "Run $i: FAIL (see $local_log)"
+        fi
+        [ "$i" -lt "$runs" ] && sleep 3
+    done
+    log_info "稳定性结果: ${pass}/${runs} PASS, ${fail}/${runs} FAIL"
+    [ "$fail" -eq 0 ]
 }
 
 stop_at_uboot() {
@@ -290,8 +417,22 @@ show_help() {
     echo "  monitor     - 启动串口监控 (参数: boot_wait post_boot)"
     echo "  uboot       - 复位 + 监控，停在 U-Boot"
     echo "  boot        - 完整流程: 编译 + 部署 + TFTP 启动 + 分析"
+    echo "  stability   - irq-full+SMP 连续启动 (STABILITY_RUNS=3 默认)"
     echo "  analyze     - 分析 /tmp/s4_boot_*.log"
     echo "  help        - 显示此帮助"
+    echo ""
+    echo "Defconfig: Shell irq-full + SMP auto-probe (main z_smp_init) + 4 核"
+    echo ""
+    echo "Overlay (覆盖 defconfig Shell 模式):"
+    echo "  OVERLAY=irq-rx     Shell RX 中断 + TX 轮询"
+    echo "  OVERLAY=poll-uart  Shell 全轮询"
+    echo "  (不设 OVERLAY)     irq-full (默认)"
+    echo ""
+    echo "示例:"
+    echo "  $0 boot                    # irq-full + 默认稳定性 Shell 命令"
+    echo "  $0 stability               # 连续 3 次启动验收"
+    echo "  STABILITY_RUNS=5 $0 stability"
+    echo "  OVERLAY=poll-uart $0 boot"
     echo ""
     echo "文档:"
     echo "  Test_env.md  - 测试环境"
@@ -328,6 +469,10 @@ case "${1:-help}" in
     boot)
         check_sshpass
         full_boot
+        ;;
+    stability)
+        check_sshpass
+        stability_boot
         ;;
     analyze)
         analyze_log "${2:-}"

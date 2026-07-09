@@ -8,6 +8,9 @@ zephyr_library_sources_ifdef(CONFIG_SOC_AMLOGIC_MESON_S4
 zephyr_library_sources_ifdef(CONFIG_SOC_MESON_S4_BOOT_TRACE
 	meson_s4_boot_debug.S
 )
-zephyr_library_sources_ifdef(CONFIG_SOC_MESON_S4_SHELL_SMP meson_s4_smp_shell.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_MESON_S4_SHELL_SMP
+	meson_s4_smp_shell.c
+	meson_s4_irq_shell.c
+)
 
 set(SOC_LINKER_SCRIPT ${ZEPHYR_BASE}/include/zephyr/arch/arm64/scripts/linker.ld CACHE INTERNAL "")

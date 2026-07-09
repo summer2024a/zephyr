@@ -42,10 +42,14 @@ FAIL_MARK = "Starting kernel"  # Android 启动，退出监控
 ZEPHYR_SHELL_MARK = "uart:~"  # Shell 提示符
 ZEPHYR_APP_MARK = "Hello World!"  # hello_world 输出
 
-# Zephyr Shell 验收命令（SMP 延迟启动时由 meson_s4_smp 触发 z_smp_init）
+# Shell 验收命令（uart:~ 出现后发送；可用环境变量 ZEPHYR_SHELL_CMDS 覆盖，逗号分隔）
 ZEPHYR_SHELL_CMDS = [
-    "meson_s4_smp",
-    "kernel threads",
+    c.strip()
+    for c in os.getenv(
+        "ZEPHYR_SHELL_CMDS",
+        "help,kernel uptime,kernel uptime,kernel version,meson_s4_gic",
+    ).split(",")
+    if c.strip()
 ]
 
 # U-Boot 启动命令（TFTP 加载 zephyr.uimg）
@@ -82,6 +86,8 @@ class SerialMonitor:
         self.uboot_ready = False
         self.boot_started = False
         self.shell_cmds_sent = False
+        self._shell_cmds_sent_time = None
+        self._app_seen_time = None
         self.status = "no_uboot"
         
     def open_serial(self):
@@ -115,10 +121,14 @@ class SerialMonitor:
         """发送 Enter 键"""
         os.write(self.fd, b"\r")
         
-    def send_line(self, line):
+    def send_line(self, line, newline="\r"):
         """发送一行命令"""
-        os.write(self.fd, (line + "\r").encode())
-        time.sleep(0.3)  # U-Boot 处理需要时间
+        os.write(self.fd, (line + newline).encode())
+        time.sleep(0.3)
+
+    def send_shell_cmd(self, line):
+        """Shell 命令：CR+LF，便于中断 RX 路径识别行结束"""
+        self.send_line(line, newline="\r\n")
         
     def check_markers(self):
         """检查缓冲区中的标记"""
@@ -144,6 +154,35 @@ class SerialMonitor:
             self.send_enter()
             
         return False
+
+    def _maybe_send_shell_cmds(self, data_str):
+        """Send SMP shell commands once uart:~ or timeout after Hello World."""
+        if not (self.boot_started and not self.shell_cmds_sent and self.do_boot):
+            return
+
+        if ZEPHYR_APP_MARK in data_str and self._app_seen_time is None:
+            self._app_seen_time = time.time()
+            log_msg("[MONITOR] Hello World seen, waiting for uart:~")
+
+        shell_ready = ZEPHYR_SHELL_MARK in data_str
+        app_timeout = (
+            self._app_seen_time is not None
+            and time.time() - self._app_seen_time > 12
+        )
+        if not (shell_ready or app_timeout):
+            return
+
+        if not shell_ready:
+            log_msg("[MONITOR] uart:~ timeout, sending shell cmds anyway")
+        else:
+            log_msg("[MONITOR] uart:~ ready, sending shell cmds")
+        self.shell_cmds_sent = True
+        self._shell_cmds_sent_time = time.time()
+        time.sleep(1.0)
+        for cmd in ZEPHYR_SHELL_CMDS:
+            log_msg(f"[MONITOR] Shell: {cmd}")
+            self.send_shell_cmd(cmd)
+            time.sleep(8.0)
         
     def run(self):
         """运行监控"""
@@ -176,10 +215,20 @@ class SerialMonitor:
                         log_msg("[MONITOR] Timeout waiting for U-Boot prompt")
                         break
                     
-                # 启动后捕获超时
+                # 启动后捕获超时（Hello World 后额外留时间给 Shell/SMP）
                 if self.boot_started:
-                    if time.time() - uboot_entered_time > self.post_boot:
+                    deadline = uboot_entered_time + self.post_boot
+                    if self._app_seen_time is not None:
+                        deadline = max(deadline, self._app_seen_time + 50)
+                    if self._shell_cmds_sent_time is not None:
+                        deadline = max(deadline, self._shell_cmds_sent_time + 45)
+                    if time.time() > deadline:
                         break
+
+                data_str = ""
+                if self.buf_len:
+                    data_str = bytes(self.buf[:self.buf_len]).decode(errors='ignore')
+                self._maybe_send_shell_cmds(data_str)
                         
                 # select 等待数据（高频模式下使用更短的 timeout）
                 try:
@@ -233,18 +282,6 @@ class SerialMonitor:
                             if self.status == "android":
                                 break
 
-                        # Zephyr 启动后发送 Shell 验收命令
-                        if (self.boot_started and not self.shell_cmds_sent
-                                and self.do_boot):
-                            if (ZEPHYR_SHELL_MARK in data_str
-                                    or ZEPHYR_APP_MARK in data_str):
-                                self.shell_cmds_sent = True
-                                time.sleep(2.0)
-                                for cmd in ZEPHYR_SHELL_CMDS:
-                                    log_msg(f"[MONITOR] Shell: {cmd}")
-                                    self.send_line(cmd)
-                                    time.sleep(3.0)
-                            
                         # U-Boot 就绪，执行启动命令
                         if self.uboot_ready and not self.boot_started and self.do_boot:
                             self.boot_started = True
