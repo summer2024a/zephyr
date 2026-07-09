@@ -38,9 +38,10 @@ CONFIG_LOG=y
 CONFIG_LOG_MODE_IMMEDIATE=y
 
 # SMP: PSCI CPU_ON + GIC SGI IPI (4 cores)
-# Defer secondary boot until shell command (avoid POST_KERNEL hang during debug)
+# Defer z_smp_init until main() probe (avoid shell+irq-full hang on meson_s4_smp)
 CONFIG_SMP=y
 CONFIG_SMP_BOOT_DELAY=y
+CONFIG_SOC_MESON_S4_SMP_AUTO_PROBE=y
 CONFIG_MP_MAX_NUM_CPUS=4
 CONFIG_PM_CPU_OPS=y
 CONFIG_PM_CPU_OPS_PSCI=y

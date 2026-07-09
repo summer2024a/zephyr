@@ -19,6 +19,10 @@ static int cmd_meson_s4_smp(const struct shell *sh, size_t argc, char **argv)
 
 #if defined(CONFIG_SMP_BOOT_DELAY)
 	if (!smp_boot_done) {
+		shell_print(sh, "this CPU id=%u MPIDR=0x%llx MPIDR_TO_CORE=0x%llx",
+			    arch_curr_cpu()->id,
+			    (unsigned long long)GET_MPIDR(),
+			    (unsigned long long)MPIDR_TO_CORE(GET_MPIDR()));
 		shell_print(sh, "Booting secondary CPUs (z_smp_init)...");
 		z_smp_init();
 		smp_boot_done = true;
@@ -28,9 +32,12 @@ static int cmd_meson_s4_smp(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "CONFIG_SMP=%s MP_MAX=%u arch_num_cpus()=%u",
 		    IS_ENABLED(CONFIG_SMP) ? "y" : "n",
 		    (unsigned int)CONFIG_MP_MAX_NUM_CPUS, arch_num_cpus());
-	shell_print(sh, "this CPU id=%u MPIDR=0x%llx",
-		    arch_curr_cpu()->id,
-		    (unsigned long long)MPIDR_TO_CORE(GET_MPIDR()));
+	if (smp_boot_done) {
+		shell_print(sh, "this CPU id=%u MPIDR=0x%llx MPIDR_TO_CORE=0x%llx",
+			    arch_curr_cpu()->id,
+			    (unsigned long long)GET_MPIDR(),
+			    (unsigned long long)MPIDR_TO_CORE(GET_MPIDR()));
+	}
 	shell_print(sh, "Boot method: PSCI (arm,psci-1.0 smc)");
 
 	if (arch_num_cpus() >= 4U) {

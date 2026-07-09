@@ -34,3 +34,26 @@ config SOC_MESON_S4_SHELL_SMP
 	default n
 	help
 	  Register meson_s4_smp shell command for PSCI / online CPU check.
+
+config SOC_MESON_S4_SMP_AUTO_PROBE
+	bool "Auto z_smp_init from main() after Hello World (debug)"
+	depends on SOC_AMLOGIC_MESON_S4 && SMP && SMP_BOOT_DELAY
+	default n
+	help
+	  Call z_smp_init from hello_world main(). Debug only.
+
+config SOC_MESON_S4_SMP_DEFER_INIT
+	bool "Defer z_smp_init 3s via k_work (SMP_BOOT_DELAY debug)"
+	depends on SOC_AMLOGIC_MESON_S4 && SMP && SMP_BOOT_DELAY
+	default n
+	help
+	  Schedule z_smp_init on system workqueue 3s after boot.
+	  Use for SMP validation without Shell.
+
+config SOC_MESON_S4_SMP_DEBUG
+	bool "Verbose SMP printk trace on UART"
+	depends on SOC_AMLOGIC_MESON_S4 && SMP
+	default n
+	help
+	  Layered s4: / smp: printf in kernel and arch SMP paths.
+	  Disable for Shell / production testing.

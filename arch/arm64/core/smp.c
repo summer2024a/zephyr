@@ -28,6 +28,10 @@
 #include <zephyr/irq.h>
 #include "boot.h"
 
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+#include <stdio.h>
+#endif
+
 #define INV_MPID	UINT64_MAX
 
 #define SGI_SCHED_IPI	0
@@ -63,6 +67,77 @@ static uint64_t cpu_map[CONFIG_MP_MAX_NUM_CPUS] = {
 	[0 ... (CONFIG_MP_MAX_NUM_CPUS - 1)] = INV_MPID
 };
 
+#ifdef CONFIG_SOC_MESON_S4_BOOT_TRACE
+extern void meson_s4_boot_marker(char tag);
+#define S4_SMP_TRACE(tag) meson_s4_boot_marker(tag)
+#else
+#define S4_SMP_TRACE(tag) do { } while (0)
+#endif
+
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+#define S4_SMP_LOG(...) printk(__VA_ARGS__)
+#else
+#define S4_SMP_LOG(...) do { } while (0)
+#endif
+
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+extern void meson_s4_enable_dcache_el1(void);
+
+static void meson_s4_smp_publish_boot_params(void)
+{
+	barrier_dsync_fence_full();
+	sys_cache_data_flush_range((void *)&arm64_cpu_boot_params,
+				   sizeof(arm64_cpu_boot_params));
+	barrier_dsync_fence_full();
+}
+
+static bool meson_s4_smp_secondary_ready(void)
+{
+	arch_cpustart_t fn;
+
+	sys_cache_data_invd_range((void *)&arm64_cpu_boot_params,
+				  sizeof(arm64_cpu_boot_params));
+	barrier_dsync_fence_full();
+	fn = arm64_cpu_boot_params.fn;
+
+	return fn == NULL;
+}
+
+static void meson_s4_smp_wait_secondary(void)
+{
+	unsigned int polls;
+
+	for (polls = 0; !meson_s4_smp_secondary_ready(); polls++) {
+		if ((polls & 0xffU) == 0U) {
+			__asm__ volatile("sev" ::: "memory");
+		}
+		wfe();
+	}
+}
+
+static int meson_s4_pm_cpu_on_retry(uint64_t cpu_mpid)
+{
+	int rc = -EINVAL;
+	int attempt;
+
+	for (attempt = 0; attempt < 3; attempt++) {
+		if (attempt > 0) {
+			k_busy_wait(100000);
+		}
+
+		rc = pm_cpu_on(cpu_mpid, (uint64_t)&__start);
+		if (rc == 0) {
+			break;
+		}
+
+		printk("smp: pm_cpu_on mpid=%#llx failed (%d), retry %d/3\n",
+		       (unsigned long long)cpu_mpid, rc, attempt + 1);
+	}
+
+	return rc;
+}
+#endif /* CONFIG_SOC_AMLOGIC_MESON_S4 */
+
 extern void z_arm64_mm_init(bool is_primary_core);
 
 /* Called from Zephyr initialization */
@@ -74,9 +149,29 @@ void arch_cpu_start(int cpu_num, k_thread_stack_t *stack, int sz,
 	uint64_t cpu_mpid = 0;
 	uint64_t primary_core_mpid;
 
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: arch_cpu_start enter cpu_num=%d curr_cpu=%u\n",
+	       cpu_num, arch_curr_cpu()->id);
+#endif
+
 	/* Now it is on primary core */
 	__ASSERT(arch_curr_cpu()->id == 0, "");
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: arch_cpu_start after assert\n");
+#endif
 	primary_core_mpid = MPIDR_TO_CORE(GET_MPIDR());
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: arch_cpu_start primary=%#llx loop_i=%d\n",
+	       (unsigned long long)primary_core_mpid, i);
+#endif
+
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+	unsigned int irq_key = arch_irq_lock();
+
+	if (cpu_num == 1) {
+		k_busy_wait(50000);
+	}
+#endif
 
 	cpu_count = ARRAY_SIZE(cpu_node_list);
 
@@ -88,12 +183,31 @@ void arch_cpu_start(int cpu_num, k_thread_stack_t *stack, int sz,
 		"The count of CPU Cores nodes in dts is not equal to CONFIG_MP_MAX_NUM_CPUS\n");
 #endif
 
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: arch_cpu_start set boot_params\n");
+#endif
+
 	arm64_cpu_boot_params.sp = K_KERNEL_STACK_BUFFER(stack) + sz;
 	arm64_cpu_boot_params.fn = fn;
 	arm64_cpu_boot_params.arg = arg;
 	arm64_cpu_boot_params.cpu_num = cpu_num;
 
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: arch_cpu_start boot_params ok fn=%p\n",
+	       (void *)arm64_cpu_boot_params.fn);
+#endif
+
+	S4_SMP_TRACE('Q');
+
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: arch_cpu_start loop i=%d count=%d\n", i, cpu_count);
+#endif
+
 	for (; i < cpu_count; i++) {
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+		printf("s4: arch_cpu_start loop i=%d node=%llu\n",
+		       i, (unsigned long long)cpu_node_list[i]);
+#endif
 		if (cpu_node_list[i] == primary_core_mpid) {
 			continue;
 		}
@@ -105,10 +219,27 @@ void arch_cpu_start(int cpu_num, k_thread_stack_t *stack, int sz,
 		/* store mpid last as this is our synchronization point */
 		arm64_cpu_boot_params.mpid = cpu_mpid;
 
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+		meson_s4_smp_publish_boot_params();
+#else
 		sys_cache_data_flush_range((void *)&arm64_cpu_boot_params,
-					  sizeof(arm64_cpu_boot_params));
+					   sizeof(arm64_cpu_boot_params));
+#endif
 
+		S4_SMP_LOG("smp: start cpu%d mpid=%#llx primary=%#llx\n",
+			    cpu_num, (unsigned long long)cpu_mpid,
+			    (unsigned long long)primary_core_mpid);
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+		printf("s4: arch_cpu_start pm_cpu_on mpid=%#llx ep=%#llx\n",
+		       (unsigned long long)cpu_mpid, (unsigned long long)&__start);
+#endif
+		S4_SMP_TRACE('+');
+
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+		if (meson_s4_pm_cpu_on_retry(cpu_mpid)) {
+#else
 		if (pm_cpu_on(cpu_mpid, (uint64_t)&__start)) {
+#endif
 			printk("Failed to boot secondary CPU core %d (MPID:%#llx)\n",
 			       cpu_num, cpu_mpid);
 #ifdef CONFIG_ARM64_FALLBACK_ON_RESERVED_CORES
@@ -119,6 +250,7 @@ void arch_cpu_start(int cpu_num, k_thread_stack_t *stack, int sz,
 #endif
 		}
 
+		S4_SMP_TRACE('=');
 		break;
 	}
 	if (i++ == cpu_count) {
@@ -127,13 +259,30 @@ void arch_cpu_start(int cpu_num, k_thread_stack_t *stack, int sz,
 	}
 
 	/* Wait secondary cores up, see arch_secondary_cpu_init */
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+	meson_s4_smp_wait_secondary();
+#else
 	while (arm64_cpu_boot_params.fn) {
+#ifdef CONFIG_CACHE_MANAGEMENT
+		sys_cache_data_invd_range((void *)&arm64_cpu_boot_params.fn,
+					  sizeof(arm64_cpu_boot_params.fn));
+#endif
 		wfe();
 	}
+#endif
+
+	S4_SMP_TRACE('9');
 
 	cpu_map[cpu_num] = cpu_mpid;
 
 	printk("Secondary CPU core %d (MPID:%#llx) is up\n", cpu_num, cpu_mpid);
+
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+	if (cpu_num < (CONFIG_MP_MAX_NUM_CPUS - 1)) {
+		k_busy_wait(50000);
+	}
+	arch_irq_unlock(irq_key);
+#endif
 }
 
 /* the C entry of secondary cores */
@@ -143,12 +292,33 @@ void arch_secondary_cpu_init(int cpu_num)
 	arch_cpustart_t fn;
 	void *arg;
 
+	S4_SMP_TRACE('>');
+
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: secondary enter mpid=%#llx boot_mpid=%#llx cpu_num=%d\n",
+	       (unsigned long long)MPIDR_TO_CORE(GET_MPIDR()),
+	       (unsigned long long)arm64_cpu_boot_params.mpid, cpu_num);
+#endif
+
+	S4_SMP_LOG("smp: secondary mpid=%#llx boot_mpid=%#llx cpu_num=%d\n",
+		   (unsigned long long)MPIDR_TO_CORE(GET_MPIDR()),
+		   (unsigned long long)arm64_cpu_boot_params.mpid, cpu_num);
+
 	__ASSERT(arm64_cpu_boot_params.mpid == MPIDR_TO_CORE(GET_MPIDR()), "");
 
 	/* Initialize tpidrro_el0 with our struct _cpu instance address */
 	write_tpidrro_el0((uintptr_t)&_kernel.cpus[cpu_num]);
 
 	z_arm64_mm_init(false);
+	S4_SMP_TRACE('{');
+
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+	/*
+	 * Enable dcache before GIC/fn sync: primary polls fn with dcache on;
+	 * secondary must not store NULL while its dcache is still off.
+	 */
+	meson_s4_enable_dcache_el1();
+#endif
 
 #ifdef CONFIG_ARM64_SAFE_EXCEPTION_STACK
 	z_arm64_safe_exception_stack_init();
@@ -156,6 +326,7 @@ void arch_secondary_cpu_init(int cpu_num)
 
 #ifdef CONFIG_SMP
 	arm_gic_secondary_init();
+	S4_SMP_TRACE('}');
 
 	irq_enable(SGI_SCHED_IPI);
 #ifdef CONFIG_USERSPACE
@@ -167,6 +338,7 @@ void arch_secondary_cpu_init(int cpu_num)
 #endif
 
 	soc_per_core_init_hook();
+	S4_SMP_TRACE('~');
 
 	fn = arm64_cpu_boot_params.fn;
 	arg = arm64_cpu_boot_params.arg;
@@ -178,8 +350,22 @@ void arch_secondary_cpu_init(int cpu_num)
 	 * arm64_cpu_boot_params afterwards.
 	 */
 	arm64_cpu_boot_params.fn = NULL;
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+	meson_s4_smp_publish_boot_params();
+#else
 	barrier_dsync_fence_full();
+#ifdef CONFIG_CACHE_MANAGEMENT
+	sys_cache_data_flush_range((void *)&arm64_cpu_boot_params.fn,
+				   sizeof(arm64_cpu_boot_params.fn));
+#endif
+#endif
 	sev();
+
+	S4_SMP_TRACE('!');
+
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: secondary fn cleared, entering smp_init_top\n");
+#endif
 
 	fn(arg);
 }

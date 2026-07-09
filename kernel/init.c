@@ -393,7 +393,14 @@ static void init_idle_thread(int i)
 
 void z_init_cpu(int id)
 {
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printk("s4: z_init_cpu enter id=%d\n", id);
+#endif
+
 	init_idle_thread(id);
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printk("s4: z_init_cpu after init_idle_thread id=%d\n", id);
+#endif
 	_kernel.cpus[id].idle_thread = &z_idle_threads[id];
 	_kernel.cpus[id].id = id;
 	_kernel.cpus[id].irq_stack =
@@ -424,6 +431,10 @@ void z_init_cpu(int id)
 
 #ifdef CONFIG_SCHED_IPI_SUPPORTED
 	sys_dlist_init(&_kernel.cpus[id].ipi_workq);
+#endif
+
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printk("s4: z_init_cpu done id=%d\n", id);
 #endif
 }
 

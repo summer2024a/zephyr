@@ -177,6 +177,24 @@ resetwait:
 
 	/* loop until our turn comes */
 secondary_core:
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+	/*
+	 * BL31 may leave dcache on across PSCI CPU_ON. Disable at current EL
+	 * so boot_params reads come from RAM, not stale cache lines.
+	 */
+	switch_el x6, 3f, 2f, 1f
+3:	b	.
+2:	mrs	x6, sctlr_el2
+	bic	x6, x6, #SCTLR_C_BIT
+	msr	sctlr_el2, x6
+	isb
+	b	4f
+1:	mrs	x6, sctlr_el1
+	bic	x6, x6, #SCTLR_C_BIT
+	msr	sctlr_el1, x6
+	isb
+4:
+#endif
 	dmb	ish
 	ldr	x2, [x0, #BOOT_PARAM_MPID_OFFSET]
 	cmp	x1, x2

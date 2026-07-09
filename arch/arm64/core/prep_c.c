@@ -72,6 +72,15 @@ FUNC_NORETURN void z_prep_c(void)
 extern FUNC_NORETURN void arch_secondary_cpu_init(void);
 void z_arm64_secondary_prep_c(void)
 {
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4) && defined(CONFIG_SMP)
+	extern void meson_s4_boot_marker(char tag);
+
+	meson_s4_boot_marker('<');
+#elif defined(CONFIG_SOC_MESON_S4_BOOT_TRACE)
+	extern void meson_s4_boot_marker(char tag);
+
+	meson_s4_boot_marker('<');
+#endif
 	arch_secondary_cpu_init();
 #if CONFIG_ARCH_CACHE
 	arch_cache_init();

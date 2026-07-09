@@ -78,6 +78,18 @@ CONFIG_ARM64_DCACHE_ALL_OPS=y
 - TCR PTW 设为 Non-Cacheable（`TCR_IRGN_NC | TCR_ORGN_NC`）
 - `enable_mmu_el1()` 中 S4 不立即开 dcache，延迟到 `z_cstart()`
 
+### SMP 路径额外注意
+
+单核策略不能直接套用到 PSCI 热启动从核，详见 [smp_psci_boot.md](smp_psci_boot.md) §3.3–3.4。
+
+| 角色 | dcache 开启时机 | 与 Linux 差异 |
+|------|----------------|--------------|
+| CPU0 主核 | `z_cstart()` → `meson_s4_enable_dcache_el1()` | Linux 主核在 `__enable_mmu` 即开 C bit |
+| CPU1~3 从核 | `soc_per_core_init_hook()`（在清 `fn` 前） | Linux 从核 `secondary_entry` → `__enable_mmu` 同步开 C bit |
+| 共享变量 `arm64_cpu_boot_params.fn` | 从核 flush + 主核 invd（`arch/arm64/core/smp.c`） | Linux 用 `secondary_data` + `dsb(ishst)` |
+
+**风险**：主核 dcache ON 时 `wfe` 轮询 `fn`，从核写 `fn = NULL` 须 flush/invalidate 保持一致。已加 generic cache 维护 + `soc_per_core_init_hook()`。
+
 ---
 
 ## 3. PRE_KERNEL_1 UART 驱动 hang
@@ -190,7 +202,147 @@ PRE_KERNEL_1 中 PSCI_VERSION SMC 可能导致早期 hang。
 
 ---
 
-## 8. 调试历程摘要
+## 10. Meson UART 中断驱动 + Shell
+
+### 10.1 现象汇总（2026-07-09 更新）
+
+| 模式 | TX | RX | 结果 |
+|------|----|----|------|
+| **irq-full Shell**（**defconfig 当前**） | 中断 | 中断 | **基本正常**；SMP 用 `SMP_AUTO_PROBE`，Shell 勿首条发 `meson_s4_gic` |
+| **混合**（`overlay-irq-rx.conf`） | 轮询 | 中断 | **稳定** |
+| **全轮询**（`overlay-poll-uart.conf`） | 轮询 | 轮询 | **稳定**，SMP 验收备选 |
+
+Tick/GIC **PPI**（Arch Timer）已用 `kernel uptime` 验证正常。
+
+### 10.2 GIC SPI 169 / CPU Interface（2026-07-09 实板 `meson_s4_gic`）
+
+| 项 | Linux | Zephyr |
+|----|-------|--------|
+| DTS SPI 编号 | `GIC_SPI 169` | 同左 |
+| GIC INTID / Zephyr IRQ | 32+169 = **201** | `DT_IRQN(uart_b)` = **201** |
+| ISR 向量 | — | `isr_tables.c` irq **201** → `meson_uart_isr` |
+| GICD enable | — | irq 201 **enabled=1** |
+| CPU IF | `GICC_ENABLE` | `GICC_CTLR=0x41`（GRP0+GRP1），`PMR=0xf0` |
+
+**易错点**：用 Linux SPI **169** 读 GIC 寄存器会查到错误线路（enabled=0）；须用 Zephyr **201** 或 `arch_irq_is_enabled(201)`。
+
+Shell 命令：`meson_s4_gic` / `s4_gic`（需 `CONFIG_SOC_MESON_S4_SHELL_SMP=y`）。
+
+### 10.3 RX/TX 中断根因与修复
+
+1. **`IRQ_CONNECT(..., 0)` 未传 DTS flags** → GIC ICFGR 保持 `gic_dist_init` 的 level；改为 `DT_INST_IRQ(0, flags)` 后 **RX/TX 中断 Shell 均恢复**（主因）。
+2. **原驱动 `TX_INT_EN`/`RX_INT_EN` 门控、`!TX_FULL` 判断**（对齐 Linux，见 §10.4）。
+3. **Shell `tx_busy` + 8B TX ring**：纯 TX 中断模式依赖后续 GIC SPI；修复 flags 后 prompt 可正常出现。
+4. **PRE_KERNEL 不可 reset FIFO/REG5** — POST_KERNEL 仅 `meson_s4_uart_irq_prepare()`。
+
+### 10.4 当前驱动（`drivers/serial/uart_meson.c`）
+
+- `irq_tx_ready` / `irq_rx_ready`：**INT_EN 置位** 且 `!TX_FULL` / `!RX_EMPTY`（对齐 Linux）
+- `irq_is_pending()`：委托上述 ready 函数
+- ISR：仅在 `irq_is_pending()` 时 kick callback
+- RX 读路径：**CLR_ERR** 清帧/parity 错误
+- S4：**POST_KERNEL** `meson_s4_uart_irq_prepare()` + `meson_s4_gic_force_edge_rising()`
+- **TX 流控对齐 Linux**：`start_tx`/`stop_tx`（burst + 按需 `TX_INT_EN`），ISR 单次 callback
+- **`IRQ_CONNECT(..., DT_INST_IRQ(0, flags))`** 传递 DTS `IRQ_TYPE_EDGE`
+
+### 10.5 Overlay 用法
+
+板级目录下两个 Kconfig 片段（**叠加**在 `s905y4_2g_defconfig` 之上）：
+
+| 文件 | 作用 |
+|------|------|
+| `overlay-irq-rx.conf` | Shell **RX 中断 + TX 轮询**，测 GIC/UART SPI 201 |
+| `overlay-poll-uart.conf` | Shell **全轮询**（从 irq-full 切回轮询验收） |
+
+**Defconfig（2026-07-09）**：`CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN=y` + `CONFIG_SOC_MESON_S4_SMP_AUTO_PROBE=y`（main 里 `z_smp_init`，4 核）+ TX ring 256。
+
+**稳定性测试**：
+
+```bash
+./board_test.sh stability          # 连续 3 次启动，2/3 PASS（irq-full）
+STABILITY_RUNS=5 ./board_test.sh stability
+```
+
+**方式 A — `board_test.sh`**
+
+```bash
+cd zephyr/boards/amlogic/s905y4_2g
+
+# 默认 irq-full + SMP auto-probe
+./board_test.sh boot
+
+# 切回全轮询
+OVERLAY=poll-uart ./board_test.sh boot
+
+# 混合 RX 中断
+OVERLAY=irq-rx ./board_test.sh boot
+```
+
+**方式 B — `west build` 直接指定**
+
+```bash
+cd /work/zephyr-rtos/zephyrproject && source zephyr/zephyr-env.sh
+
+west build -b s905y4_2g -d build_s4_shell -s zephyr/samples/hello_world --pristine -- \
+  -DEXTRA_CONF_FILE=zephyr/boards/amlogic/s905y4_2g/overlay-irq-rx.conf
+```
+
+上板后在 `uart:~$` 执行 `meson_s4_gic`：关注 `zephyr_irq=201`、`RX_INT_EN=1`、`meson_uart_isr_count` 是否随按键/命令增长。
+
+```kconfig
+# defconfig 当前
+CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN=y
+CONFIG_SOC_MESON_S4_SMP_AUTO_PROBE=y
+CONFIG_SHELL_BACKEND_SERIAL_TX_RING_BUFFER_SIZE=256
+```
+
+### 10.6 验证记录
+
+| 日期 | 配置 | 结果 |
+|------|------|------|
+| 2026-07-08 | 全轮询 + SMP | `meson_s4_smp` → 4 核 OK |
+| 2026-07-08 | 全轮询 + `help` | **help / kernel version 有回显** |
+| 2026-07-08 | 混合 IRQ-RX（flags=0） | prompt OK，**命令无回显** |
+| 2026-07-08 | 纯 IRQ TX/RX（flags=0） | 无 prompt |
+| 2026-07-08 | `kernel uptime`×2 | tick +400ms，GIC PPI OK |
+| 2026-07-09 | GIC 诊断 `meson_s4_gic` | irq 201 enabled=1；此前误查 irq 169 |
+| 2026-07-09 | 混合 IRQ-RX + flags fix | **help / kernel version OK**，isr_count 增长 |
+| 2026-07-09 | defconfig irq-full + SMP auto-probe | stability **2/3 PASS**；help 先于 meson_s4_gic |
+| 2026-07-09 | irq-full + Linux 对齐 `start_tx`/`stop_tx` | stability **2/3 PASS**；Run3 hang 在 `z_smp_init()`，非 Shell |
+| 2026-07-09 | SMP 同步加固（dcache/flush/wfe/sev/PSCI retry） | stability **5/5 PASS** |
+
+**Linux 对齐 TX 流（`uart_meson.c`）**
+
+与 Linux `meson_uart.c` 一致：
+
+- `irq_tx_enable` → `meson_uart_start_tx()`：先 burst 回调填 FIFO，剩余数据再开 `TX_INT_EN`
+- `irq_tx_disable` → `meson_uart_stop_tx()`：仅清 `TX_INT_EN`，保留 `TX_EN`/`RX_INT_EN`
+- ISR：RX 或 TX ready 时单次 callback（同 Linux `meson_uart_interrupt`）
+
+### 10.7 SMP 启动偶发 hang 修复（2026-07-09）
+
+**现象**：irq-full + `SMP_AUTO_PROBE` 稳定性 **2/3**，失败 run hang 在 `z_smp_init()` / `arch_cpu_start` 的 `wfe` 等 `fn=NULL`。
+
+**根因**（主从不对称 cache）：
+
+1. 从核 PSCI 唤醒时 BL31 可能仍开着 dcache，读 `boot_params.mpid` 命中 stale line → 卡在 `reset.S` `secondary_core`
+2. 从核 MMU 后 dcache 仍 OFF，主核 dcache ON 轮询 `fn` → 偶发看不到 `fn=NULL`
+3. Hello 后立即 `z_smp_init()`，GIC/UART IRQ 与 PSCI 竞态
+
+**修复**：
+
+| 位置 | 改动 |
+|------|------|
+| `reset.S` | 从核进 `secondary_core` 前关当前 EL dcache |
+| `smp.c` | 整表 flush/invalidate；`wfe`+周期 `sev`；PSCI 3 次 retry；拉核间 50ms；关 IRQ |
+| `smp.c` | 从核 `z_arm64_mm_init` 后立即 `meson_s4_enable_dcache_el1()` |
+| `meson_s4_smp_probe.c` | `k_sleep(100ms)` 后再 `z_smp_init()` |
+
+**验证**：`STABILITY_RUNS=5 ./board_test.sh stability` → **5/5 PASS**
+
+---
+
+## 11. 调试历程摘要
 
 | 日期 | 工作 | 结果 |
 |------|------|------|
@@ -198,10 +350,12 @@ PRE_KERNEL_1 中 PSCI_VERSION SMC 可能导致早期 hang。
 | 2026-07-07 | 测试脚本调通、EL2 dcache disable | 单独使用仍 hang |
 | 2026-07-08 | UART TX_EMPTY + 分层 cache | 推进到 MMU/z_cstart |
 | 2026-07-08 | PRE_KERNEL_1 UART skip init | **Hello World 成功** |
+| 2026-07-08 | UART TX/RX INT_EN + Shell 轮询 | **Shell + SMP 4 核在线** |
+| 2026-07-09 | `IRQ_CONNECT` + DTS flags、GIC 诊断 | **混合/纯中断 Shell 均通过** |
 
 ---
 
-## 9. 关键约束汇总
+## 12. 关键约束汇总
 
 - **SECMON** `0x05000000~0x08200000`：须避开
 - **dcache**：EL2/EL1/MMU/z_cstart 分层维护，先 MMU 后 dcache

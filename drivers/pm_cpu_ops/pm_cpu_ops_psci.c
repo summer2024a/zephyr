@@ -21,6 +21,10 @@ LOG_MODULE_REGISTER(psci);
 #include <zephyr/drivers/pm_cpu_ops.h>
 #include "pm_cpu_ops_psci.h"
 
+#if defined(CONFIG_SOC_AMLOGIC_MESON_S4)
+#include <stdio.h>
+#endif
+
 #ifdef CONFIG_POWEROFF
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/poweroff.h>
@@ -68,8 +72,17 @@ int pm_cpu_on(unsigned long cpuid,
 		return -EINVAL;
 	}
 
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: pm_cpu_on cpuid=%#lx ep=%#lx before smc\n",
+	       cpuid, (unsigned long)entry_point);
+#endif
+
 	ret = psci_data.invoke_psci_fn(PSCI_FN_NATIVE(0_2, CPU_ON), cpuid,
 				       (unsigned long) entry_point, 0);
+
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+	printf("s4: pm_cpu_on smc ret=%d\n", ret);
+#endif
 
 	return psci_to_dev_err(ret);
 }

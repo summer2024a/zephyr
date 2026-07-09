@@ -9,6 +9,15 @@
 #include <kswap.h>
 #include <kernel_internal.h>
 
+#if defined(CONFIG_SOC_MESON_S4_SMP_DEBUG)
+#include <stdio.h>
+#define S4_SMP_KTRACE(msg) printf("s4: %s\n", (msg))
+#define S4_SMP_KTRACE_CPU(msg, cpu) printf("s4: " msg " cpu=%d\n", (cpu))
+#else
+#define S4_SMP_KTRACE(msg) do { } while (0)
+#define S4_SMP_KTRACE_CPU(msg, cpu) do { } while (0)
+#endif
+
 static atomic_t global_lock;
 
 /**
@@ -150,14 +159,20 @@ static inline void smp_init_top(void *arg)
 
 static void start_cpu(int id, struct cpu_start_cb *csc)
 {
+	S4_SMP_KTRACE_CPU("start_cpu enter", id);
+
 	/* Clear the ready flag so the newly powered up CPU can
 	 * signal that it has powered up.
 	 */
 	(void)atomic_clear(&ready_flag);
 
+	S4_SMP_KTRACE_CPU("start_cpu before arch_cpu_start", id);
+
 	/* Power up the CPU */
 	arch_cpu_start(id, z_interrupt_stacks[id], CONFIG_ISR_STACK_SIZE,
 		       smp_init_top, csc);
+
+	S4_SMP_KTRACE_CPU("start_cpu after arch_cpu_start", id);
 
 	/* Wait until the newly powered up CPU to signal that
 	 * it has powered up.
@@ -165,6 +180,8 @@ static void start_cpu(int id, struct cpu_start_cb *csc)
 	while (!atomic_get(&ready_flag)) {
 		local_delay();
 	}
+
+	S4_SMP_KTRACE_CPU("start_cpu ready_flag set", id);
 }
 
 void k_smp_cpu_start(int id, smp_init_fn fn, void *arg)
@@ -221,6 +238,8 @@ void k_smp_cpu_resume(int id, smp_init_fn fn, void *arg,
 
 void z_smp_init(void)
 {
+	S4_SMP_KTRACE("z_smp_init enter");
+
 	/* We are powering up all CPUs and we want to synchronize their
 	 * entry into scheduler. So set the start flag to 0 here.
 	 */
@@ -229,15 +248,24 @@ void z_smp_init(void)
 	/* Just start CPUs one by one. */
 	unsigned int num_cpus = arch_num_cpus();
 
+	S4_SMP_KTRACE_CPU("z_smp_init num_cpus", (int)num_cpus);
+
 	for (int i = 1; i < num_cpus; i++) {
+		S4_SMP_KTRACE_CPU("z_smp_init before z_init_cpu", i);
 		z_init_cpu(i);
+		S4_SMP_KTRACE_CPU("z_smp_init before start_cpu", i);
 		start_cpu(i, NULL);
+		S4_SMP_KTRACE_CPU("z_smp_init cpu up", i);
 	}
+
+	S4_SMP_KTRACE("z_smp_init set cpu_start_flag");
 
 	/* Let loose those CPUs so they can start scheduling
 	 * threads to run.
 	 */
 	(void)atomic_set(&cpu_start_flag, 1);
+
+	S4_SMP_KTRACE("z_smp_init done");
 }
 
 bool z_smp_cpu_mobile(void)
