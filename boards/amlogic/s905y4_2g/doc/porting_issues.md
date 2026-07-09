@@ -208,8 +208,8 @@ PRE_KERNEL_1 中 PSCI_VERSION SMC 可能导致早期 hang。
 
 | 模式 | TX | RX | 结果 |
 |------|----|----|------|
-| **irq-full Shell**（**defconfig 当前**） | 中断 | 中断 | **基本正常**；SMP 用 `SMP_AUTO_PROBE`，Shell 勿首条发 `meson_s4_gic` |
-| **混合**（`overlay-irq-rx.conf`） | 轮询 | 中断 | **稳定** |
+| **混合 irq-rx**（**defconfig 当前**） | 轮询 | 中断 | **稳定**；推荐日常使用 |
+| **irq-full**（去掉 `FORCE_TX_BLOCKING_MODE`） | 中断 | 中断 | 可用但 Shell 输入/输出易卡顿 |
 | **全轮询**（`overlay-poll-uart.conf`） | 轮询 | 轮询 | **稳定**，SMP 验收备选 |
 
 Tick/GIC **PPI**（Arch Timer）已用 `kernel uptime` 验证正常。
