@@ -8,7 +8,8 @@
 #include <stdio.h>
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
-#include <kernel_internal.h>
+
+#include "meson_s4_smp_boot.h"
 
 #if defined(CONFIG_SMP) && defined(CONFIG_SMP_BOOT_DELAY)
 
@@ -25,8 +26,11 @@ static void smp_defer_fn(void *p1, void *p2, void *p3)
 
 	k_sleep(K_SECONDS(3));
 	printf("s4: deferred z_smp_init (cpus=%u before)\n", arch_num_cpus());
-	z_smp_init();
-	printf("s4: deferred z_smp_init done (cpus=%u)\n", arch_num_cpus());
+	if (meson_s4_smp_boot_now() != 0) {
+		printf("s4: deferred z_smp_init failed (cpus=%u)\n", arch_num_cpus());
+	} else {
+		printf("s4: deferred z_smp_init done (cpus=%u)\n", arch_num_cpus());
+	}
 }
 
 static int smp_defer_start(void)

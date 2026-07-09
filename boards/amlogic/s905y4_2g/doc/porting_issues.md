@@ -340,6 +340,14 @@ CONFIG_SHELL_BACKEND_SERIAL_TX_RING_BUFFER_SIZE=256
 
 **验证**：`STABILITY_RUNS=5 ./board_test.sh stability` → **5/5 PASS**
 
+### 10.8 `meson_s4_smp` 重复拉核卡死（2026-07-09）
+
+| 问题 | 根因 | 修复 |
+|------|------|------|
+| `meson_s4_smp` 卡死 | `SMP_AUTO_PROBE` 已在 main 拉核，Shell 内 `static smp_boot_done` 仍为 false → **重复 `z_smp_init()`** | 共享 `meson_s4_smp_boot.c`：`meson_s4_smp_boot_done()` / `meson_s4_smp_boot_now()` |
+
+`meson_s4_smp` 在 4 核已在线时应打印 `Secondary CPUs already online (skip z_smp_init)`。
+
 ---
 
 ## 11. 调试历程摘要

@@ -38,7 +38,7 @@ CONFIG_LOG=y
 CONFIG_LOG_MODE_IMMEDIATE=y
 
 # SMP: PSCI CPU_ON + GIC SGI IPI (4 cores)
-# Defer z_smp_init until main() probe (avoid shell+irq-full hang on meson_s4_smp)
+# Boot in main() via SMP_AUTO_PROBE; meson_s4_smp only reports status if already up
 CONFIG_SMP=y
 CONFIG_SMP_BOOT_DELAY=y
 CONFIG_SOC_MESON_S4_SMP_AUTO_PROBE=y
